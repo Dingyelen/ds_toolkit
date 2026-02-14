@@ -15,6 +15,7 @@ output/
 # 如果你不想别人看到你的 .cursorrules 指令，取消下面这行的注释
 .cursorrules
 .cursor/
+.gitignore
 
 # --- Python 环境与缓存 ---
 __pycache__/

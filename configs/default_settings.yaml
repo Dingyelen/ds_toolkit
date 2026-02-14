@@ -1,6 +1,13 @@
 # ds_toolkit 默认配置模板
 # 业务参数请在此或各任务专属 yaml 中配置，禁止在代码中硬编码
 
+# 文件读写（core/file_io.py DataLoader 用）
+file_io:
+  encodings:
+    - "utf-8"
+    - "gbk"
+    - "gb18030"
+
 # 通用路径（示例，按需覆盖）
 paths:
   input_dir: "./data/input"
