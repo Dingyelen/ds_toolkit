@@ -1,0 +1,33 @@
+# --- 数据文件 (严禁同步) ---
+*.csv
+*.xlsx
+*.xls
+*.parquet
+data/
+output/
+
+# --- 配置与敏感信息 ---
+# 如果你的 yaml 里写了数据库密码，建议忽略具体的配置文件
+# configs/*.yaml
+# 但为了保留结构，可以同步一个模板：configs/default_settings.yaml.example
+
+# --- Cursor & AI 提示词 ---
+# 如果你不想别人看到你的 .cursorrules 指令，取消下面这行的注释
+.cursorrules
+.cursor/
+
+# --- Python 环境与缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+.env
+build/
+dist/
+*.egg-info/
+
+# --- 操作系统临时文件 ---
+.DS_Store
+Thumbs.db
