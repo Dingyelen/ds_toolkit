@@ -1,7 +1,11 @@
 # ds_toolkit 默认配置模板
 # 业务参数请在此或各任务专属 yaml 中配置，禁止在代码中硬编码
 
-# 文件读写（core/file_io.py DataLoader 用）
+# 工作目录初始化（core/utils/file_made.py ProjectInitializer 用）
+workspace_settings:
+  base_path: "/Users/dyl/Nutstore Files/nuts/work"
+
+# 文件读写（core/utils/file_io DataLoader 用）
 file_io:
   encodings:
     - "utf-8"
