@@ -1,0 +1,175 @@
+data:
+  # 列名：实验组/对照组标识（使用 ab_group 避免与 SQL 关键字 group 冲突）
+  group_col: ab_group
+  # 列名：实验阶段，如 "before" / "after"
+  phase_col: phase
+
+metrics:
+  # -------------------------
+  # 连续型指标：ARPU / ARPPU
+  # -------------------------
+  - name: arpu
+    type: continuous
+    column: arpu
+    test:
+      # 关注实验组是否提升 ARPU
+      alternative: larger
+      # 自动结合分布诊断选择 mean / log_mean / mann_whitney
+      prefer: auto
+      # 只关心提升方向，使用单侧检验
+      sided: one-sided
+    sample_size:
+      # 标准化效应大小：希望至少检测到 0.1 个标准差的提升
+      mde: 0.1
+      alpha: 0.05
+      power: 0.8
+      method: means
+
+  - name: arppu
+    type: continuous
+    column: arppu
+    test:
+      # 关注实验组是否提升 ARPPU
+      alternative: larger
+      prefer: auto
+      # 对“只关心提升”的场景，常用单侧检验
+      sided: one-sided
+    sample_size:
+      # ARPPU 一般偏态更重，默认按非参数检验设计样本量
+      mde: 0.15
+      alpha: 0.05
+      power: 0.8
+      method: nonparametric
+
+  # -------------------------
+  # 比例型指标：付费率 / 留存率
+  # 列中应为每用户 0/1 样本列表
+  # -------------------------
+  - name: pay_rate
+    type: proportion
+    column: pay_rate
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      # 示例：基线付费率约 10%，希望能检测到 +2pct 的绝对提升
+      baseline_rate: 0.1
+      mde: 0.02
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr1
+    type: proportion
+    column: rr1
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      # 示例：次日留存基线约 30%，希望能检测到 +3pct 的绝对提升
+      baseline_rate: 0.3
+      mde: 0.03
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr2
+    type: proportion
+    column: rr2
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.25
+      mde: 0.03
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr3
+    type: proportion
+    column: rr3
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.2
+      mde: 0.03
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr7
+    type: proportion
+    column: rr7
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.15
+      mde: 0.025
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr14
+    type: proportion
+    column: rr14
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.12
+      mde: 0.02
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr30
+    type: proportion
+    column: rr30
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.1
+      mde: 0.02
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr90
+    type: proportion
+    column: rr90
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.06
+      mde: 0.015
+      alpha: 0.05
+      power: 0.8
+
+  - name: rr180
+    type: proportion
+    column: rr180
+    test:
+      alternative: larger
+      sided: one-sided
+    sample_size:
+      baseline_rate: 0.04
+      mde: 0.01
+      alpha: 0.05
+      power: 0.8
+
+  # -------------------------
+  # 连续型指标：人均在线时长
+  # -------------------------
+  - name: online_time
+    type: continuous
+    column: online_time
+    test:
+      alternative: larger
+      prefer: auto
+      # 只关心在线时长是否提升时，使用单侧检验
+      sided: one-sided
+    sample_size:
+      # 希望检测到 0.1 个标准差的在线时长提升
+      mde: 0.1
+      alpha: 0.05
+      power: 0.8
+      method: means
+
