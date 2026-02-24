@@ -1,7 +1,13 @@
 # scripts/new_requre.py
 # 快捷入口：通过修改变量后运行，在配置的 base_path 下创建需求工作目录
 
+import sys
 from pathlib import Path
+
+# 将项目根目录加入 sys.path，保证 from core.xxx 可被解析（无论从何处执行脚本）
+_project_root = Path(__file__).resolve().parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 import yaml
 

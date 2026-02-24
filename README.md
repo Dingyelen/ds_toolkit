@@ -33,14 +33,6 @@ ds_toolkit/
 
 ---
 
-## 依赖关系
-
-- **单向依赖**：`scripts` → `modules` → `core`，禁止 core 引用 modules。
-- **模块隔离**：`modules` 下各子目录不互相 import；组合使用在 `scripts` 中编排。
-- **配置驱动**：业务参数（路径、阈值、列名等）从 `configs/*.yaml` 读取。
-
----
-
 ## 使用方法
 
 ### 环境
@@ -70,16 +62,3 @@ df = loader.read_data("data.csv")
 兼容旧写法：`from core.file_io import DataLoader` 同样可用。
 
 ---
-
-## 作者与维护
-
-| 项目 | 说明 |
-|------|------|
-| **作者 / Author** | （在此填写你的名字或 GitHub 用户名） |
-| **仓库 / Repo** | 可在 GitHub 仓库 About 中填写简介与链接 |
-
-如需按 GitHub 社区规范补充作者信息，建议：
-
-- 在 **README 本表**中填写「作者」一行；
-- 在仓库 **About** 中设置 Description 和 Website（个人主页或文档）；
-- 多人协作时可另建 `CONTRIBUTORS.md` 列出贡献者。

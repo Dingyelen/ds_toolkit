@@ -3,7 +3,7 @@
 
 # 工作目录初始化（core/utils/file_made.py ProjectInitializer 用）
 workspace_settings:
-  base_path: "/Users/dyl/Nutstore Files/nuts/work"
+  base_path: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio"
 
 # 文件读写（core/utils/file_io DataLoader 用）
 file_io:
