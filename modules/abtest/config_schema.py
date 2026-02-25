@@ -69,6 +69,7 @@ class ABTestConfig:
     - group_col: 组名列名（如 "group" / "variant"）；
     - phase_col: 实验阶段列名（如 "phase"，值为 "before" / "after" 等）；
     - metrics: 需要分析的指标列表。
+    分层维度 stratify_by 由 run_ab_test 的独立参数传入，不放在配置中。
     """
 
     group_col: str

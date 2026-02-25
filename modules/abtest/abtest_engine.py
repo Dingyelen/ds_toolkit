@@ -377,6 +377,7 @@ def run_ab_test(
     base_group: str = "control",
     target_phases: Optional[List[str]] = None,
     confidence_level: float = 0.95,
+    stratify_by: Optional[List[str]] = None,
 ) -> pd.DataFrame:
     """
     运行 AB 实验分析的主入口。
@@ -389,17 +390,17 @@ def run_ab_test(
     参数：
     - df: 聚合后的 DataFrame；
       * 必须至少包含 config.group_col / config.phase_col，以及各指标配置中声明的 column；
-      * 每行对应一个 (group, phase)，指标列中为该组该阶段下的样本集合（list/array）。
+      * 若 stratify_by 非空，df 还须包含这些分层列，每行对应 (group, phase, 分层维度)；
+      * 指标列中为该组该阶段该分层下的样本集合（list/array）。
     - config: ABTestConfig 配置对象；
     - base_group: 对照组名称（默认 "control"），用于与其他组做对比；
-    - target_phases: 需要分析的阶段列表（如 ["after"]），
+    - target_phases: 需要分析的阶段列表（如 ["after"] 或 ["before"] 做 AA），
       * 若为 None，则使用数据中出现的所有 phase；
-    - confidence_level: 置信水平，默认 0.95。
-
+    - confidence_level: 置信水平，默认 0.95；
+    - stratify_by: 可选，分层维度列名列表（如 ["country", "level"]）。为空或 None 时不分层。
     返回：
-    - DataFrame，每行对应一个 (metric, phase, variant_group) 与 base_group 的对比结果。
-      若某些指标在配置中声明但数据集中缺少对应列，会静默跳过该指标。
-      若数据集中存在未在 metrics 中声明的列，会给出提示，方便你补充配置。
+    - DataFrame，每行对应一个 (metric, phase, variant_group[, 分层列]) 与 base_group 的对比结果。
+      若 stratify_by 非空，结果中在 variant_group 后增加分层列。
     """
     if config.group_col not in df.columns:
         raise ValueError(f"DataFrame 缺少组名列 {config.group_col}。")
@@ -430,6 +431,14 @@ def run_ab_test(
             f"请检查 {config.group_col} 列的取值。"
         )
 
+    stratify_cols: List[str] = list(stratify_by) if stratify_by else []
+    if stratify_cols:
+        missing = set(stratify_cols) - set(df.columns)
+        if missing:
+            raise ValueError(
+                f"分层列 {sorted(missing)} 不在 DataFrame 中，请检查 stratify_by 与数据列名。"
+            )
+
     results: List[ABTestResultRow] = []
 
     for metric_cfg in config.metrics:
@@ -437,123 +446,158 @@ def run_ab_test(
         metric_type = metric_cfg.test.metric_type
         metric_column = metric_cfg.test.column
 
-        # 若 DataFrame 中缺少该指标列，则直接跳过（视为本次实验未涉及该指标）
         if metric_column not in df.columns:
             continue
 
-        # 样本量规划（与 phase 无关），若配置了则只算一次
         sample_plan = _plan_sample_size_for_metric(metric_cfg)
 
         for phase in phases_to_use:
-            samples_by_group = _extract_samples_for_metric_phase(
-                df=df,
-                group_col=config.group_col,
-                phase_col=config.phase_col,
-                metric_column=metric_column,
-                metric_name=metric_name,
-                phase=phase,
-            )
+            if stratify_cols:
+                phase_df = df[df[config.phase_col] == phase]
+                if phase_df.empty:
+                    continue
+                segments_df = phase_df[stratify_cols].drop_duplicates()
+                segment_iter = list(segments_df.iterrows())
+            else:
+                segment_iter = [(None, pd.Series(dtype=object))]
 
-            if base_group not in samples_by_group:
-                # 当前 phase 下缺少对照组，跳过该 phase
-                continue
+            for _seg_idx, seg_row in segment_iter:
+                if stratify_cols:
+                    segment_vals = seg_row.to_dict()
+                    sub = df[df[config.phase_col] == phase].copy()
+                    for col in stratify_cols:
+                        sub = sub[sub[col] == segment_vals[col]]
+                    if sub.empty:
+                        continue
+                else:
+                    segment_vals = {}
+                    sub = df
 
-            control_samples = samples_by_group[base_group]
+                samples_by_group = _extract_samples_for_metric_phase(
+                    df=sub,
+                    group_col=config.group_col,
+                    phase_col=config.phase_col,
+                    metric_column=metric_column,
+                    metric_name=metric_name,
+                    phase=phase,
+                )
 
-            for group, variant_samples in samples_by_group.items():
-                if group == base_group:
+                if base_group not in samples_by_group:
                     continue
 
-                if metric_type == "continuous":
-                    test_info = _run_continuous_test(
-                        control_values=control_samples,
-                        variant_values=variant_samples,
-                        metric_cfg=metric_cfg,
-                        confidence_level=confidence_level,
-                    )
-                elif metric_type == "proportion":
-                    test_info = _run_proportion_test(
-                        control_values=control_samples,
-                        variant_values=variant_samples,
-                        metric_cfg=metric_cfg,
-                        confidence_level=confidence_level,
-                    )
-                else:
-                    raise ValueError(
-                        f"指标 {metric_name} 的类型 {metric_type} 非法，应为 "
-                        f"'continuous' 或 'proportion'。"
-                    )
+                control_samples = samples_by_group[base_group]
 
-                stat_result = test_info["stat_result"]
-                used_method = test_info["used_method"]
-                p_value = float(stat_result.get("p_value", 1.0))
-                is_significant = bool(stat_result.get("is_significant", False))
+                for group, variant_samples in samples_by_group.items():
+                    if group == base_group:
+                        continue
 
-                n_base, n_variant, base_value, variant_value = _report_values_from_test(
-                    stat_result=stat_result,
-                    used_method=used_method,
-                    control_samples=control_samples,
-                    variant_samples=variant_samples,
-                )
+                    if metric_type == "continuous":
+                        test_info = _run_continuous_test(
+                            control_values=control_samples,
+                            variant_values=variant_samples,
+                            metric_cfg=metric_cfg,
+                            confidence_level=confidence_level,
+                        )
+                    elif metric_type == "proportion":
+                        test_info = _run_proportion_test(
+                            control_values=control_samples,
+                            variant_values=variant_samples,
+                            metric_cfg=metric_cfg,
+                            confidence_level=confidence_level,
+                        )
+                    else:
+                        raise ValueError(
+                            f"指标 {metric_name} 的类型 {metric_type} 非法，应为 "
+                            f"'continuous' 或 'proportion'。"
+                        )
 
-                # 效应值：无论是否显著都展示。优先用 stat_result 的 effect；log_mean 用 effect_ratio；否则用差值兜底
-                effect_raw = stat_result.get("effect")
-                if effect_raw is not None:
-                    effect_display = float(effect_raw)
-                elif stat_result.get("effect_ratio") is not None:
-                    effect_display = float(stat_result["effect_ratio"])
-                else:
-                    effect_display = variant_value - base_value
+                    stat_result = test_info["stat_result"]
+                    used_method = test_info["used_method"]
+                    p_value = float(stat_result.get("p_value", 1.0))
+                    is_significant = bool(stat_result.get("is_significant", False))
 
-                extra: Dict[str, Any] = {
-                    "diagnosis": test_info.get("diagnosis"),
-                    "stat_result": stat_result,
-                    "sample_size_plan": sample_plan,
-                    "n_base": n_base,
-                    "n_variant": n_variant,
-                    "base_value": base_value,
-                    "variant_value": variant_value,
-                }
-
-                results.append(
-                    ABTestResultRow(
-                        metric=metric_name,
-                        metric_type=metric_type,
-                        phase=phase,
-                        base_group=base_group,
-                        variant_group=group,
+                    n_base, n_variant, base_value, variant_value = _report_values_from_test(
+                        stat_result=stat_result,
                         used_method=used_method,
-                        p_value=p_value,
-                        is_significant=is_significant,
-                        effect=effect_display,
-                        extra=extra,
+                        control_samples=control_samples,
+                        variant_samples=variant_samples,
                     )
-                )
+
+                    effect_raw = stat_result.get("effect")
+                    if effect_raw is not None:
+                        effect_display = float(effect_raw)
+                    elif stat_result.get("effect_ratio") is not None:
+                        effect_display = float(stat_result["effect_ratio"])
+                    else:
+                        effect_display = variant_value - base_value
+
+                    extra = {
+                        "diagnosis": test_info.get("diagnosis"),
+                        "stat_result": stat_result,
+                        "sample_size_plan": sample_plan,
+                        "n_base": n_base,
+                        "n_variant": n_variant,
+                        "base_value": base_value,
+                        "variant_value": variant_value,
+                        "stratify": segment_vals,
+                    }
+
+                    results.append(
+                        ABTestResultRow(
+                            metric=metric_name,
+                            metric_type=metric_type,
+                            phase=phase,
+                            base_group=base_group,
+                            variant_group=group,
+                            used_method=used_method,
+                            p_value=p_value,
+                            is_significant=is_significant,
+                            effect=effect_display,
+                            extra=extra,
+                        )
+                    )
 
     if not results:
         raise ValueError("run_ab_test 未生成任何结果，请检查输入数据与配置是否匹配。")
 
-    # 将结果行转换为 DataFrame；报表列优先，diagnosis/stat_detail/sample_size_plan 放最后三列
-    rows: List[Dict[str, Any]] = []
+    # 将结果行转换为 DataFrame；报表列优先，分层列紧跟 variant_group，diagnosis/stat_detail/sample_size_plan 放最后
+    stratify_cols_from_results: List[str] = []
+    for r in results:
+        s = (r.extra or {}).get("stratify") or {}
+        if s:
+            stratify_cols_from_results = sorted(s.keys())
+            break
+
+    rows = []
     for row in results:
         base = asdict(row)
         extra = base.pop("extra", {}) or {}
-        # 报表用：对照组/实验组样本量与指标数值作为顶层列
+        for k, v in (extra.get("stratify") or {}).items():
+            base[k] = v
         base["n_base"] = extra.get("n_base")
         base["n_variant"] = extra.get("n_variant")
         base["base_value"] = extra.get("base_value")
         base["variant_value"] = extra.get("variant_value")
-        # 详细诊断与统计结果放最后三列，便于需要时查看、不影响主表浏览
         base["diagnosis"] = extra.get("diagnosis")
         base["stat_detail"] = extra.get("stat_result")
         base["sample_size_plan"] = extra.get("sample_size_plan")
         rows.append(base)
 
     out = pd.DataFrame(rows)
-    # 确保 diagnosis、stat_detail、sample_size_plan 为最后三列
+    # 列顺序：基础列 → 分层列（若有）→ 其余 → diagnosis/stat_detail/sample_size_plan 最后三列
+    base_cols = ["metric", "metric_type", "phase", "base_group", "variant_group"]
     last_three = ["diagnosis", "stat_detail", "sample_size_plan"]
-    other_cols = [c for c in out.columns if c not in last_three]
-    final_cols = other_cols + [c for c in last_three if c in out.columns]
+    stratify_cols = [c for c in stratify_cols_from_results if c in out.columns]
+    other_cols = [
+        c for c in out.columns
+        if c not in base_cols and c not in stratify_cols and c not in last_three
+    ]
+    final_cols = (
+        [c for c in base_cols if c in out.columns]
+        + stratify_cols
+        + other_cols
+        + [c for c in last_three if c in out.columns]
+    )
     return out[final_cols]
 
 
@@ -620,36 +664,30 @@ def compute_did(
     aa_result: pd.DataFrame,
     ab_result: pd.DataFrame,
     merge_on: Optional[List[str]] = None,
+    stratify_by: Optional[List[str]] = None,
     alpha: float = 0.05,
     power: float = 0.8,
     sided: str = "two-sided",
 ) -> pd.DataFrame:
     """
     基于 AA / AB 两阶段 run_ab_test 结果，计算双重差分（DID）点估计，并评估样本量是否充足。
-
-    数据层面：
-    - AA：run_ab_test(..., target_phases=["before"]) → 每 (metric, variant_group) 的 effect、p_value 等；
-    - AB：run_ab_test(..., target_phases=["after"]) → 同样结构。
-    两表按 (metric, variant_group) 对齐，DID 数值为 did_effect = effect_ab - effect_aa。
+    支持分层：当 AA/AB 报告含分层列时，传入 stratify_by 即可按 (metric, variant_group, 分层) 对齐。
 
     参数：
     - aa_result: AA 阶段 run_ab_test 返回的 DataFrame（如 target_phases=["before"]）；
     - ab_result: AB 阶段 run_ab_test 返回的 DataFrame（如 target_phases=["after"]）；
-    - merge_on: 对齐键列，默认 ["metric", "variant_group"]；
-    - alpha: 样本量计算用显著性水平，默认 0.05；
-    - power: 样本量计算用统计功效，默认 0.8；
-    - sided: 样本量计算用双侧/单侧，默认 "two-sided"。
+    - merge_on: 对齐键列；为 None 时取 ["metric", "variant_group"] + (stratify_by 或 [])；
+    - stratify_by: 分层列名列表（与 run_ab_test 的 stratify_by 参数一致），可为空或 1～多个；
+    - alpha / power / sided: 样本量计算用参数。
 
     返回：
-    - DataFrame，仅包含以下列（不包含统计学过程参数）：
-      * 标识：metric, variant_group；
-      * 效应与 DID：effect_aa, effect_ab, did_effect；
-      * 显著性（AB 阶段）：p_value, is_significant；
-      * 报表用（AB 阶段）：n_base, n_variant, base_value, variant_value；
-      * 样本量双保险：n_required（检测当前效应所需每组最小样本量）、n_actual（min(n_base,n_variant)）、sample_sufficient（是否充足）。
+    - DataFrame，列含：metric, variant_group[, 分层列], base_value, variant_value, effect_aa, effect_ab, did_effect, p_value, is_significant, n_base, n_variant, n_required, n_actual, sample_sufficient。
     仅保留在两表中均能对齐成功的行（inner join）。
     """
-    key = merge_on if merge_on is not None else ["metric", "variant_group"]
+    if merge_on is not None:
+        key = list(merge_on)
+    else:
+        key = ["metric", "variant_group"] + (list(stratify_by) if stratify_by else [])
     required = set(key) | {"effect", "p_value", "is_significant", "metric_type"}
     for name, frame in [("aa_result", aa_result), ("ab_result", ab_result)]:
         missing = required - set(frame.columns)
