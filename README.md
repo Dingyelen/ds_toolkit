@@ -4,49 +4,91 @@
 
 ---
 
-## 项目介绍
+## 配置说明（configs/）
 
-- 为数据分析工作提供可复用的底层能力与业务模块。
-- 配置统一放在 `configs/`，业务参数从 YAML 读取，不在代码中硬编码。
-- 代码以可读性优先，函数式或简单类为主，关键函数带中文注释与类型标注。
+### 全局配置思路
+
+- 所有任务的 **输入路径、编码列表、指标定义、样本量参数** 等，都建议写在 YAML 中。
+- 常见用法：
+  1. 用 `yaml.safe_load` 读取对应 YAML；
+  2. 传入各模块的 `load_xxx_config`（如 `load_abtest_config`）得到强类型配置对象；
+  3. 调用 `modules/` 下的业务函数输出结果。
+
+### 默认配置：`configs/default_settings.yaml`
+
+- 用于放一些通用默认：
+  - 文件编码列表、分隔符、日期格式等；
+  - 默认输出路径、日志级别；
+  - 各模块的默认参数（如留存窗口、报表样式等）。
+- 典型用法：在自己的任务配置中用“拷贝 + 局部覆盖”的方式继承/修改。
+
+### AB 实验配置：`configs/abtest_demo.yaml`
+
+`abtest_demo.yaml` 是 AB 实验模块的参考配置，结构大致如下（**均已落地实现**）：
+
+```yaml
+data:
+  group_col: ab_group    # 实验组/对照组列名
+  phase_col: phase       # 实验阶段列名，如 "before"/"after"
+
+metrics:
+  - name: arpu           # 指标名（自定义别名）
+    type: continuous     # "continuous" 连续型 / "proportion" 比例型
+    column: arpu         # df 中对应的列名（列内是样本列表）
+    test:
+      alternative: larger  # 备择假设：实验组是否“更大”
+      prefer: auto         # "auto"/"mean"/"log_mean"/"mann_whitney"
+      sided: one-sided     # "one-sided"/"two-sided"
+    sample_size:           # 可选：配置则自动算样本量规划
+      mde: 0.1             # 最小可检测效应（连续型为标准化效应大小 d）
+      alpha: 0.05
+      power: 0.8
+      method: means        # "means" 或 "nonparametric"
+```
+
+**关键字段说明：**
+
+- **`data.group_col` / `data.phase_col`**
+  - run_ab_test 依赖这两个字段来识别“组别”和“实验阶段”；
+  - df 中每行对应一个 `(group, phase[, 分层])` 组合。
+
+- **`metrics[].type`**
+  - `"continuous"`：连续型（如 ARPU、ARPPU、在线时长、人均次数）；
+  - `"proportion"`：比例型（如付费率、留存率、活跃率、转化率）。
+
+- **`metrics[].column`**
+  - 对应 df 中的列名，该列的每个单元格是一个“样本列表”，可以来自 SQL 的 `array_agg` 等聚合。
+
+- **`metrics[].test`**
+  - `alternative`：
+    - `"two-sided"`：只关心“是否不同”；
+    - `"larger"`：关心“实验组是否更大”；
+    - `"smaller"`：关心“实验组是否更小”。
+  - `prefer`（连续型）：
+    - `"auto"`：结合分布诊断自动在 `mean` / `log_mean` / `mann_whitney` 中选择；
+    - `"mean"`：均值差检验；
+    - `"log_mean"`：对数均值检验（适合 ARPPU 等右偏指标）；
+    - `"mann_whitney"`：Mann–Whitney U 秩和检验。
+  - `sided`：单双侧检验，影响 alpha 与样本量公式。
+
+- **`metrics[].sample_size`（可选）**
+  - 若配置，则 run_ab_test 会调用 `SampleSizeCalculation` 计算每组所需最小样本量 `n_per_group`：
+    - 连续型：基于 Cohen's d 的均值检验样本量；
+    - 比例型：基于两比例差的样本量公式。
 
 ---
 
-## 项目结构
+## 核心能力概览（core/ 已实现）
 
-```
-ds_toolkit/
-├── configs/          # 纯配置（YAML），无 Python 逻辑
-├── core/             # 底层技术工具，不引用 modules
-│   ├── stats/        # 统计学底层（T 检验、卡方、正态性等）
-│   ├── visualizer/   # 绘图模板（Plotly/Matplotlib，支持 Mac 中文与负号）
-│   └── utils/        # 通用工具（文件读写等）
-├── modules/          # 业务分析逻辑，子模块之间不互相 import
-│   ├── ab_test/      # AB 实验
-│   ├── cleaner/      # 数据清洗
-│   ├── retention/    # 留存拟合与预测
-│   ├── revenue/      # 收入预估 / LTV
-│   ├── modeling/     # 预测模型
-│   └── reporter/     # 报表输出
-└── scripts/          # 入口脚本：读 config → 调 modules → 出结果
-```
+### 文件读取（core.utils）
 
----
+- **模块**：`core.utils.file_io.DataLoader`
+- **功能**：
+  - 按后缀自动选择 CSV/Excel 读取；
+  - 对 CSV 支持编码回退（如 `utf-8 → gbk → gb18030`）；
+  - 支持从配置注入编码列表。
 
-## 使用方法
-
-### 环境
-
-- Python 3.10+
-- 依赖：pandas, numpy, PyYAML；建模用 scikit-learn，报表用 Plotly/Matplotlib。
-
-### 配置
-
-- 默认配置见 `configs/default_settings.yaml`，可按任务复制或覆盖其中节点（如路径、编码列表、各模块参数）。
-
-### 文件读取（已实现）
-
-通过 `core.utils.file_io.DataLoader` 按后缀自动选择 CSV/Excel，并对 CSV 做编码回退（如 utf-8 → gbk → gb18030）：
+示例：
 
 ```python
 from core.utils import DataLoader
@@ -54,104 +96,58 @@ from core.utils import DataLoader
 loader = DataLoader()
 df = loader.read_data("data.csv")
 
-# 或从配置注入编码列表
+# 或从 YAML 配置中注入编码列表
 # loader = DataLoader(encoding_list=config["file_io"]["encodings"])
 # df = loader.read_data(path, sep="\t", sheet_name=0)
 ```
 
----
+### 统计模块（core.stats）
 
-## 统计模块（core.stats，已实现部分）
+#### 分布诊断（连续型）
 
-### 分布诊断（连续型指标）
+- **位置**：`core.stats.distribution_diagnostics.diagnose_continuous_distribution`
+- **适用对象**：ARPU、ARPPU、在线时长、人均次数等连续型指标。
+- **输出**：
+  - 基本统计：`n`、均值、标准差、中位数、最小值、最大值；
+  - 形态特征：偏度、超额峰度、零占比；
+  - 标记与推荐：
+    - `is_approximately_normal`：是否近似正态；
+    - `is_heavy_tailed`：是否重尾/极端偏态；
+    - `is_zero_inflated`：是否零膨胀（典型为 ARPU）；
+    - `recommended_tests`：推荐的检验方法列表（如 `"mean_z_test"`, `"log_mean_test"`, `"mann_whitney_u"`）。
 
-- 功能位置：`core.stats.distribution_diagnostics.diagnose_continuous_distribution`
-- 适用对象：ARPU、ARPPU、在线时长、人均次数等连续型业务指标。
-- 输出信息：
-  - 基本统计量：样本量 `n`、均值、标准差、中位数、最小值、最大值；
-  - 分布形态：偏度 `skewness`、超额峰度 `kurtosis_excess`、零占比 `zero_ratio`；
-  - 标签与建议：
-    - `is_approximately_normal`：是否“大致接近正态”；
-    - `is_heavy_tailed`：是否重尾 / 极端偏态；
-    - `is_zero_inflated`：是否存在大量 0（典型为 ARPU）；
-    - `recommended_tests`：推荐检验类型列表（如 `"mean_z_test"`、`"log_mean_test"`、`"mann_whitney_u"`）。
+#### 假设检验（HypothesisTest）
 
-示例：
+- **位置**：`core.stats.HypothesisTest`
+- **支持场景**：
+  - 连续型：均值检验、对数均值检验、Mann–Whitney U 检验；
+  - 比率型：两比例 z 检验；
+  - ABN：对照组 vs 多实验组的批量比较。
 
-```python
-from core.stats import diagnose_continuous_distribution
+主要方法（已实现）：
 
-diagnosis = diagnose_continuous_distribution(values)  # values 为一组连续型样本
-print(diagnosis["recommended_tests"])
-```
+- `mean_test`：两独立样本均值差 z 检验（大样本近似 t 检验）；
+- `log_mean_test`：log 空间做均值检验，并输出原始空间倍数变化；
+- `mann_whitney_u_test`：Mann–Whitney U 非参数检验，更关注整体分布/中位数；
+- `proportion_test`：两比例 z 检验（0/1 指标）。
 
-### 假设检验（HypothesisTest）
+#### 样本量计算（SampleSizeCalculation）
 
-- 功能位置：`core.stats.HypothesisTest`
-- 支持场景：
-  - 连续型指标：人均收入、时长、人均次数等；
-  - 比率型指标：付费率、留存率、活跃率、转化率等；
-  - 多实验组 ABN：对照组 vs 多个实验组的批量比较。
+- **位置**：`core.stats.SampleSizeCalculation`
+- **功能**：
+  - 连续型均值检验样本量（含单双侧）；
+  - 比率型两比例检验样本量；
+  - 连续型非参数检验样本量近似（基于 Mann–Whitney U 渐近效率）。
 
-主要方法：
-
-- `mean_test`：两独立样本均值差 z 检验（大样本近似 t 检验）
-  - 适用：分布不算太极端、关注“均值差”的场景。
-- `log_mean_test`：对数变换后的均值检验
-  - 适用：指标明显右偏且全部为正（如 ARPPU），更关注“相对变化（倍数变化）”；
-  - 同时给出 log 空间的均值差和原始空间的倍数变化及置信区间。
-- `mann_whitney_u_test`：Mann–Whitney U 非参数检验
-  - 适用：分布严重偏态、重尾或异常值较多的连续指标；
-  - 更关注“整体分布/中位数是否系统性偏移”。
-- `proportion_test`：两比例 z 检验
-  - 适用：付费率、留存率、活跃率、转化率等 0/1 指标；
-  - 输入为成功数和总人数。
-- `batch_mean_test` / `batch_proportion_test`
-  - 适用：ABN 场景，将一个对照组与多个实验组批量比较，返回按实验组名称索引的结果字典。
-
-简单示例（连续型指标）：
-
-```python
-from core.stats import HypothesisTest
-
-ht = HypothesisTest()
-result = ht.mean_test(control_values, variant_values, alternative="two-sided", confidence_level=0.95)
-
-if result["is_significant"]:
-    print("实验组均值显著不同，effect =", result["effect"])
-```
-
-### 样本量计算（SampleSizeCalculation）
-
-- 功能位置：`core.stats.SampleSizeCalculation`
-- 支持场景：
-  - 连续型指标均值检验（含单双侧）；
-  - 比率型指标两比例检验（含单双侧）；
-  - 连续型指标基于非参数检验（如 Mann–Whitney U）的样本量近似。
-
-主要方法：
-
-- `calculate_for_means` / `summarize_for_means`
-  - 输入：标准化效应大小 `mde`（均值差 ÷ 标准差）、显著性水平 `alpha`、统计功效 `power`、单双侧 `sided`；
-  - 输出：每组最小样本量 `n_per_group`；
-  - 适用：t/z 检验类的均值比较（包括对数变换后做均值检验）。
-- `calculate_for_proportions` / `summarize_for_proportions`
-  - 输入：基线比例 `baseline_rate`、希望检测的绝对差值 `mde`、`alpha`、`power`、`sided`；
-  - 输出：每组最小样本量 `n_per_group`；
-  - 适用：付费率、留存率、活跃率、转化率等指标。
-- `calculate_for_means_nonparametric` / `summarize_for_means_nonparametric`
-  - 基于 Mann–Whitney U 相对 t 检验的渐近效率，对连续型非参数检验给出一个“在 t 检验样本量基础上适度放大”的实用样本量估计；
-  - 适用：已经决定使用秩和类非参数检验的连续指标。
-
-示例（比率型指标样本量）：
+示例（比率型样本量）：
 
 ```python
 from core.stats import SampleSizeCalculation
 
 ssc = SampleSizeCalculation()
 n = ssc.calculate_for_proportions(
-    baseline_rate=0.1,  # 当前付费率 10%
-    mde=0.02,           # 希望至少能检测到 +2pct 的提升
+    baseline_rate=0.1,
+    mde=0.02,
     alpha=0.05,
     power=0.8,
     sided="two-sided",
@@ -159,15 +155,24 @@ n = ssc.calculate_for_proportions(
 print("每组至少需要样本数:", n)
 ```
 
-
 ---
 
 ## AB 实验模块（modules.abtest）
 
-### run_ab_test 使用示例（快速上手）
+### 数据与配置前提
 
-- 配置：在 `configs/abtest_demo.yaml` 中声明要分析的指标（示例已内置 ARPU/ARPPU/付费率/留存/在线时长等）。
-- 数据：准备一张宽表 `df`，**每行 = 一个 (ab_group, phase)**，各指标列为该组合下的样本列表。
+- **数据 df**：
+  - 每行对应一个 `(group_col, phase_col[, stratify_by...])` 组合；
+  - 各指标列（如 `arppu`, `pay_rate`）为该组合下的**样本列表**。
+- **配置 config**：
+  - 使用 `load_abtest_config(raw_cfg)` 从 YAML 构建 `ABTestConfig`；
+  - `data.group_col`、`data.phase_col`、`metrics` 等字段含义见上文。
+
+---
+
+### `run_ab_test`：用法与输入输出
+
+#### 使用示例
 
 ```python
 import yaml
@@ -178,113 +183,146 @@ with open("configs/abtest_demo.yaml", "r", encoding="utf-8") as f:
 
 config = load_abtest_config(raw_cfg)
 result_df = run_ab_test(
-    df=df,                 # 你聚合好的宽表
+    df=df,
     config=config,
-    base_group="control",  # 对照组名称
-    target_phases=["after"]
+    base_group="control",
+    target_phases=["after"],    # ["before"] 可用于 AA 检验
+    stratify_by=["country"],    # 可选：按国家/等级等分层
 )
 ```
 
-### run_ab_test 结果字段说明（按列）
+#### 核心统计逻辑
 
-| 列名             | 含义                                                                 |
-|------------------|----------------------------------------------------------------------|
-| `metric`         | 指标名称（如 `arppu`, `pay_rate`, `rr1` 等）                         |
-| `metric_type`    | 指标类型：`"continuous"` 连续型 / `"proportion"` 比例型              |
-| `phase`          | 实验阶段（如 `"before"` / `"after"`）                                |
-| `base_group`     | 对照组名称（与 `base_group` 入参一致）                              |
-| `variant_group`  | 与对照组对比的实验组名称                                            |
-| `used_method`    | 实际使用的检验方法（如 `"mean"`, `"log_mean"`, `"mann_whitney"` 等） |
-| `p_value`        | p 值                                                                 |
-| `is_significant` | 是否在给定 `alternative` + 置信水平下显著                           |
-| `effect`         | 效应大小：连续型为均值差，比例型为比例差（实验组 − 对照组）         |
-| `diagnosis`      | 分布诊断/样本汇总信息（字典，见下文）                               |
-| `stat_detail`    | 统计检验的完整结果（字典，见下文）                                  |
-| `sample_size_plan` | 样本量规划结果（字典，见下文，未配置 sample_size 时为 None）     |
+对于每个 `(metric, phase[, 分层组合])`：
 
-### diagnosis 字段结构
+1. 从 df 中抽取 base_group 与各 variant_group 的样本列表。
+2. 根据 `metric_type` 与 `test.prefer` 选择检验方法：
+   - 连续型：
+     - 近似正态且右偏不严重：倾向 `mean`；
+     - 明显右偏且值>0：倾向 `log_mean`；
+     - 重尾/异常值多：倾向 `mann_whitney`。
+   - 比例型：使用两比例 z 检验。
+3. 使用 `HypothesisTest` 得到：
+   - 统计量（z 或 U）；
+   - p 值 `p_value`，显著性标记 `is_significant`；
+   - 效应 `effect`：
+     - 连续型 mean：均值差（实验组 − 对照组）；
+     - 连续型 log_mean：报告中更关注 `effect_ratio`（倍数）；
+     - 比例型：比例差（实验组 − 对照组）。
+4. 若配置了 `sample_size`，调用 `SampleSizeCalculation` 得到样本量规划 `sample_size_plan`。
 
-- **连续型指标（`metric_type == "continuous"`）**
+#### 结果表中的主要列（统计视角）
 
-| 键名                   | 含义                                              |
-|------------------------|---------------------------------------------------|
-| `n`                    | 样本数（对照组样本数量）                          |
-| `mean` / `std`         | 均值 / 标准差                                     |
-| `min` / `max` / `median` | 最小值 / 最大值 / 中位数                        |
-| `skewness`             | 偏度，>0 右偏，<0 左偏，绝对值越大越偏           |
-| `kurtosis_excess`      | 超额峰度，>0 尖峰重尾，<0 平坦                   |
-| `zero_ratio`           | 样本为 0 的占比（识别 ARPU 这类零膨胀分布）      |
-| `is_approximately_normal` | 是否“大致正态”                               |
-| `is_heavy_tailed`      | 是否重尾 / 极端偏态                              |
-| `is_zero_inflated`     | 是否存在大量 0                                   |
-| `recommended_tests`    | 推荐检验方法列表，如 `["mean_z_test"]` 等        |
+| 列名                | 含义                                                                                       |
+|---------------------|--------------------------------------------------------------------------------------------|
+| `metric`            | 指标名称，如 `arppu`、`pay_rate` 等                                                       |
+| `metric_type`       | 指标类型：`"continuous"` 连续型 / `"proportion"` 比例型                                    |
+| `phase`             | 实验阶段，如 `"before"` / `"after"`                                                       |
+| `base_group`        | 对照组名称（与 `base_group` 入参一致）                                                    |
+| `variant_group`     | 实验组名称                                                                                |
+| 分层列（可选）      | 若传入 `stratify_by`，在 `variant_group` 后增加对应的分层字段（如 `country`、`level`）    |
+| `used_method`       | 实际使用的检验方法：`"mean"` / `"log_mean"` / `"mann_whitney"` / `"proportion_z_test"` 等  |
+| `p_value`           | p 值                                                                                       |
+| `is_significant`    | 是否在给定 `alternative` + 置信水平下显著                                                 |
+| `effect`            | 效应大小：连续型 mean 为均值差；log_mean 场景多用 `effect_ratio`（倍数）；比例型为比例差  |
+| `diagnosis`         | 分布诊断与样本汇总信息（字典，结构见上文）                                                |
+| `stat_detail`       | 统计检验的完整结果（字典，含统计量、置信区间、`pooled_std`/`pooled_std_log` 等）          |
+| `sample_size_plan`  | 样本量规划结果（字典，配置了 `sample_size` 时存在，结构见下文）                           |
 
-- **比例型指标（`metric_type == "proportion"`）**
+#### 业务解读建议
 
-| 键名              | 含义                              |
-|-------------------|-----------------------------------|
-| `n_control`       | 对照组样本量                      |
-| `n_variant`       | 实验组样本量                      |
-| `control_success` | 对照组成功数（如付费人数）        |
-| `variant_success` | 实验组成功数                      |
+- **是否显著**：用 `p_value` + `is_significant` 判断“是否有统计学证据表明实验组≠对照组”。
+- **效应有多大**：
+  - 连续型：看 `effect`（差了多少单位）；
+  - log_mean：看 `effect_ratio`（提升了多少百分比），及其倍数置信区间；
+  - 比例型：看 `effect`（绝对百分点变化）。
+- **样本量是否够**：
+  - 对比实际样本量与 `sample_size_plan["n_per_group"]`：
+    - 远高于规划值 + 显著：结论相对稳健；
+    - 远低于规划值：不显著更可能是“功效不足”，显著也要谨慎“偶然显著”。
 
-### stat_detail 字段结构（按 used_method 解读）
+---
 
-- **`used_method = "mean"`（连续型均值检验）**
-  - 主要键：
-    - `control_mean` / `variant_mean`：两组均值  
-    - `effect`：均值差（实验组 − 对照组）  
-    - `statistic`：z 统计量  
-    - `p_value` / `is_significant` / `alpha` / `alternative`  
-    - `confidence_interval`：均值差的置信区间 `(low, high)`
+### `compute_did`：AA/AB + 双重差分（DID）
 
-- **`used_method = "log_mean"`（对数均值检验，适合 ARPPU 等）**
-  - 在 `mean` 的基础上增加：
-    - `control_mean_log` / `variant_mean_log`：log 空间均值  
-    - `effect_log`：对数均值差  
-    - `effect_ratio`：`exp(effect_log)`，约等于“实验组/对照组”的倍数变化  
-    - `confidence_interval_log`：log 空间区间  
-    - `confidence_interval_ratio`：原始空间的倍数区间  
-  - 业务解读示例：`effect_ratio = 1.10` 可读作“实验组 ARPPU 比对照组高约 10%”。
+#### 使用示例
 
-- **`used_method = "mann_whitney"`（Mann–Whitney U 非参数检验）**
-  - 主要键：
-    - `u_statistic`：U 统计量  
-    - `z_statistic`：近似正态下的 z 值  
-    - `p_value` / `is_significant` / `alternative`  
-    - `n_control` / `n_variant`：样本量  
-  - 更关注整体分布/中位数是否有系统性偏移，而不是直接给出均值差。
+```python
+from modules.abtest import compute_did
 
-- **`used_method = "proportion_z_test"`（比例检验）**
-  - 主要键：
-    - `control_rate` / `variant_rate`：两组比例  
-    - `effect`：比例差（实验组 − 对照组）  
-    - `statistic`：z 统计量  
-    - `p_value` / `is_significant` / `alpha` / `alternative`  
-    - `confidence_interval`：比例差的置信区间
+aa_df = run_ab_test(df, config, base_group="control", target_phases=["before"])
+ab_df = run_ab_test(df, config, base_group="control", target_phases=["after"])
 
-### sample_size_plan 字段结构
+did_df = compute_did(
+    aa_result=aa_df,
+    ab_result=ab_df,
+    stratify_by=["country"],  # 若 run_ab_test 做了分层，这里一并传
+)
+```
 
-- **连续型指标**
+#### 统计学解释
 
-| 键名          | 含义                                       |
-|---------------|--------------------------------------------|
-| `type`        | `"continuous"`                             |
-| `n_per_group` | 每组推荐最小样本量（向上取整后的数值）     |
-| `alpha`       | 显著性水平                                 |
-| `power`       | 统计功效                                   |
-| `mde`         | 最小可检测效应（标准化效应大小）           |
-| `method`      | `"means"`（t/z 检验）或 `"nonparametric"`（非参数检验） |
+对每个 `(metric, variant_group[, 分层])`，`compute_did` 会输出以下关键字段：
 
-- **比例型指标**
+| 列名               | 含义                                                                                                   |
+|--------------------|--------------------------------------------------------------------------------------------------------|
+| `metric`           | 指标名称                                                                                               |
+| `variant_group`    | 实验组名称                                                                                             |
+| 分层列（可选）     | 若传入 `stratify_by`，以这些列作为分层键                                                               |
+| `base_value`       | AB 阶段对照组的均值/比例（after）                                                                      |
+| `variant_value`    | AB 阶段实验组的均值/比例（after）                                                                      |
+| `effect_aa`        | AA 阶段组间差（before），连续型为均值差/倍数，比例型为比例差                                          |
+| `effect_ab`        | AB 阶段组间差（after）                                                                                 |
+| `did_effect`       | DID 点估计：`effect_ab - effect_aa`，表示“上线后差异 − 上线前差异”的净效应                            |
+| `p_value`          | AB 阶段检验的 p 值                                                                                    |
+| `aa_significant`   | AA 阶段是否显著                                                                                       |
+| `ab_significant`   | AB 阶段是否显著                                                                                       |
+| `n_base`           | AB 阶段对照组样本量                                                                                   |
+| `n_variant`        | AB 阶段实验组样本量                                                                                   |
+| `n_required`       | 继承自 AB 报告的 `sample_size_plan_ab["n_per_group"]`，表示设计期期望的每组最少样本量                 |
+| `effect_n_required`| 基于当前效应（`effect_ab`/`effect_log`）重新计算的“检测该效应所需每组最小样本量”，alpha/power 与 run 对齐 |
+| `sample_sufficient`| 当前定义为 `n_variant >= n_required`，表示实验组样本量是否已达到设计期要求                             |
 
-| 键名          | 含义                                       |
-|---------------|--------------------------------------------|
-| `type`        | `"proportion"`                             |
-| `n_per_group` | 每组推荐最小样本量                         |
-| `alpha`       | 显著性水平                                 |
-| `power`       | 统计功效                                   |
-| `mde`         | 绝对差值形式的最小可检测效应（如 +0.02）   |
-| `baseline_rate` | 基线比例（如当前付费率 0.1）            |
+> 注意：当前 DID 仅给出 **`did_effect` 点估计**，未对 DID 本身做显著性检验；  
+> 用于“剃掉 AA 基线差异看 AB 净效应”，不直接提供 DID 的 p 值。
 
-结合 `diagnosis` 中的实际样本量（如 `n` 或 `n_control/n_variant`）对比 `n_per_group`，可以快速判断本次实验是“样本充足的显著性结果”，还是“样本偏小、只能当作参考”。 
+> 注意：当前 DID 仅给出 **`did_effect` 点估计**，未对 DID 本身做显著性检验；  
+> 用于“剃掉 AA 基线差异看 AB 净效应”，不直接提供 DID 的 p 值。
+
+#### 业务解读建议
+
+- **AA 检查（随机性/口径）**
+  - `aa_significant=True` 且 `effect_aa` 明显偏离 0：
+    - 说明实验前随机分组或埋点/口径存在系统偏差；
+    - AB 结果需结合 DID（`did_effect`）谨慎解读。
+
+- **AB 结果**
+  - `ab_significant=True` 且 `effect_ab>0`（或 `effect_ratio>1`）：
+    - 在当前样本量与 alpha/power 下，有统计学证据支持“实验组优于对照组”；
+  - 若不显著且 `n_variant << n_required`：
+    - 更偏向“功效不足”，而非“验证了无效果”。
+
+- **DID（did_effect）**
+  - 用于“上线后差异减去上线前差异”，更接近因果效应：
+    - 若 AA 不显著、AB 显著，则 DID 通常接近 AB，可视为实验净效应；
+    - 若 AA 已显著、AB 也显著，但 DID 接近 0，则实验可能只是延续了原差异。
+
+- **样本量双视角**
+  - `n_required`：设计期规划的“应有样本量”；
+  - `effect_n_required`：按当前观测效应反推“需要多少样本才能稳妥检测到这种效应”；
+  - 与 `n_variant` 联合看：
+    - `n_variant >= n_required`：基本满足设计期功效；
+    - `n_variant` 远大于 `effect_n_required`：对当前效应来说样本偏富余；
+    - `n_variant` 明显小于 `effect_n_required`：当前样本量对该效应仍偏紧。
+
+---
+
+## 环境与依赖
+
+- Python 3.10+
+- 主要依赖：
+  - `pandas`, `numpy`, `PyYAML`
+  - 统计/建模：`scikit-learn`（在部分 modules 中使用）
+  - 报表/可视化：`Plotly`, `Matplotlib`（在 `core/visualizer` 与 `modules/reporter` 中使用）
+
+建议在虚拟环境中按需安装依赖，并根据实际使用的模块选择性引入。 
