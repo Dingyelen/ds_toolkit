@@ -1,6 +1,8 @@
 import ast
+import math
 from collections.abc import Iterable as IterableABC
 from dataclasses import asdict, dataclass
+from statistics import mean as stat_mean
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
 import warnings
 
@@ -186,6 +188,46 @@ def _run_continuous_test(
         "stat_result": stat_result,
         "used_method": method,
     }
+
+
+def _report_values_from_test(
+    stat_result: Dict[str, Any],
+    used_method: str,
+    control_samples: List[float],
+    variant_samples: List[float],
+) -> Tuple[int, int, float, float]:
+    """
+    从检验结果与样本中抽取报表用：n_base、n_variant、base_value、variant_value。
+
+    参数：
+    - stat_result: core.stats 返回的检验结果字典；
+    - used_method: 实际使用的检验方法（mean / log_mean / mann_whitney / proportion_z_test）；
+    - control_samples / variant_samples: 对照组与实验组的样本列表。
+
+    返回：
+    - (n_base, n_variant, base_value, variant_value)。
+      base_value/variant_value：连续型为均值（或几何均值），比例型为比例。
+    """
+    n_base = len(control_samples)
+    n_variant = len(variant_samples)
+
+    if used_method == "mean":
+        base_value = float(stat_result["control_mean"])
+        variant_value = float(stat_result["variant_mean"])
+    elif used_method == "log_mean":
+        base_value = math.exp(float(stat_result["control_mean_log"]))
+        variant_value = math.exp(float(stat_result["variant_mean_log"]))
+    elif used_method == "mann_whitney":
+        base_value = stat_mean(control_samples)
+        variant_value = stat_mean(variant_samples)
+    elif used_method == "proportion_z_test":
+        base_value = float(stat_result["control_rate"])
+        variant_value = float(stat_result["variant_rate"])
+    else:
+        base_value = float("nan")
+        variant_value = float("nan")
+
+    return (n_base, n_variant, base_value, variant_value)
 
 
 def _run_proportion_test(
@@ -448,10 +490,21 @@ def run_ab_test(
                 is_significant = bool(stat_result.get("is_significant", False))
                 effect = stat_result.get("effect")
 
+                n_base, n_variant, base_value, variant_value = _report_values_from_test(
+                    stat_result=stat_result,
+                    used_method=used_method,
+                    control_samples=control_samples,
+                    variant_samples=variant_samples,
+                )
+
                 extra: Dict[str, Any] = {
                     "diagnosis": test_info.get("diagnosis"),
                     "stat_result": stat_result,
                     "sample_size_plan": sample_plan,
+                    "n_base": n_base,
+                    "n_variant": n_variant,
+                    "base_value": base_value,
+                    "variant_value": variant_value,
                 }
 
                 results.append(
@@ -472,7 +525,7 @@ def run_ab_test(
     if not results:
         raise ValueError("run_ab_test 未生成任何结果，请检查输入数据与配置是否匹配。")
 
-    # 将结果行转换为 DataFrame；extra 字段展开为 JSON 友好的 dict
+    # 将结果行转换为 DataFrame；extra 字段展开为 JSON 友好的 dict，报表列提升为顶层
     rows: List[Dict[str, Any]] = []
     for row in results:
         base = asdict(row)
@@ -481,6 +534,11 @@ def run_ab_test(
         base["diagnosis"] = extra.get("diagnosis")
         base["stat_detail"] = extra.get("stat_result")
         base["sample_size_plan"] = extra.get("sample_size_plan")
+        # 报表用：对照组/实验组样本量与指标数值作为顶层列，便于直接展示
+        base["n_base"] = extra.get("n_base")
+        base["n_variant"] = extra.get("n_variant")
+        base["base_value"] = extra.get("base_value")
+        base["variant_value"] = extra.get("variant_value")
         rows.append(base)
 
     return pd.DataFrame(rows)
