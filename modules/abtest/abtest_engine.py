@@ -488,7 +488,6 @@ def run_ab_test(
                 used_method = test_info["used_method"]
                 p_value = float(stat_result.get("p_value", 1.0))
                 is_significant = bool(stat_result.get("is_significant", False))
-                effect = stat_result.get("effect")
 
                 n_base, n_variant, base_value, variant_value = _report_values_from_test(
                     stat_result=stat_result,
@@ -496,6 +495,15 @@ def run_ab_test(
                     control_samples=control_samples,
                     variant_samples=variant_samples,
                 )
+
+                # 效应值：无论是否显著都展示。优先用 stat_result 的 effect；log_mean 用 effect_ratio；否则用差值兜底
+                effect_raw = stat_result.get("effect")
+                if effect_raw is not None:
+                    effect_display = float(effect_raw)
+                elif stat_result.get("effect_ratio") is not None:
+                    effect_display = float(stat_result["effect_ratio"])
+                else:
+                    effect_display = variant_value - base_value
 
                 extra: Dict[str, Any] = {
                     "diagnosis": test_info.get("diagnosis"),
@@ -517,7 +525,7 @@ def run_ab_test(
                         used_method=used_method,
                         p_value=p_value,
                         is_significant=is_significant,
-                        effect=float(effect) if effect is not None else None,
+                        effect=effect_display,
                         extra=extra,
                     )
                 )
@@ -525,21 +533,26 @@ def run_ab_test(
     if not results:
         raise ValueError("run_ab_test 未生成任何结果，请检查输入数据与配置是否匹配。")
 
-    # 将结果行转换为 DataFrame；extra 字段展开为 JSON 友好的 dict，报表列提升为顶层
+    # 将结果行转换为 DataFrame；报表列优先，diagnosis/stat_detail/sample_size_plan 放最后三列
     rows: List[Dict[str, Any]] = []
     for row in results:
         base = asdict(row)
         extra = base.pop("extra", {}) or {}
-        # 将 extra 扁平化为若干列前缀，避免 DataFrame 中嵌套过深
-        base["diagnosis"] = extra.get("diagnosis")
-        base["stat_detail"] = extra.get("stat_result")
-        base["sample_size_plan"] = extra.get("sample_size_plan")
-        # 报表用：对照组/实验组样本量与指标数值作为顶层列，便于直接展示
+        # 报表用：对照组/实验组样本量与指标数值作为顶层列
         base["n_base"] = extra.get("n_base")
         base["n_variant"] = extra.get("n_variant")
         base["base_value"] = extra.get("base_value")
         base["variant_value"] = extra.get("variant_value")
+        # 详细诊断与统计结果放最后三列，便于需要时查看、不影响主表浏览
+        base["diagnosis"] = extra.get("diagnosis")
+        base["stat_detail"] = extra.get("stat_result")
+        base["sample_size_plan"] = extra.get("sample_size_plan")
         rows.append(base)
 
-    return pd.DataFrame(rows)
+    out = pd.DataFrame(rows)
+    # 确保 diagnosis、stat_detail、sample_size_plan 为最后三列
+    last_three = ["diagnosis", "stat_detail", "sample_size_plan"]
+    other_cols = [c for c in out.columns if c not in last_three]
+    final_cols = other_cols + [c for c in last_three if c in out.columns]
+    return out[final_cols]
 
