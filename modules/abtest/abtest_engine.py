@@ -608,14 +608,27 @@ def _n_required_for_did_row(
     sided: str,
 ) -> Optional[int]:
     """
-    根据 DID 合并行（含 AB 阶段 stat_detail）计算检测当前效应所需每组最小样本量。
+    根据 DID 合并行（含 AB 阶段 stat_detail、sample_size_plan）计算检测当前效应所需每组最小样本量。
 
     比例型：baseline_rate=base_value_ab，mde=abs(effect_ab)，调用 calculate_for_proportions；
-    连续型：从 stat_detail_ab 取出 pooled_std，Cohen's d = effect_ab / pooled_std，调用 calculate_for_means。
+    连续型（mean/mann_whitney）：Cohen's d = effect_ab / pooled_std（原始空间均值差/标准差），调用 calculate_for_means；
+    连续型（log_mean）：d_log = effect_log / pooled_std_log（log 空间），调用 calculate_for_means。
+    alpha/power 优先从 row 的 sample_size_plan_ab 读取以与 run 一致，缺失时用参数默认值。
     无法计算时返回 None。
     """
+    plan = row.get("sample_size_plan_ab")
+    if isinstance(plan, dict):
+        try:
+            pa = float(plan.get("alpha", alpha))
+            pp = float(plan.get("power", power))
+            if 0.0 < pa < 1.0 and 0.0 < pp < 1.0:
+                alpha, power = pa, pp
+        except (TypeError, ValueError):
+            pass
+
     metric_type = row.get("metric_type_ab") or row.get("metric_type_aa")
     effect_ab = row.get("effect_ab")
+    stat = row.get("stat_detail_ab")
 
     if metric_type == "proportion":
         base_value = row.get("base_value_ab")
@@ -636,10 +649,33 @@ def _n_required_for_did_row(
         except (TypeError, ValueError):
             return None
 
-    # 连续型：从 stat_detail 提出 pooled_std
-    stat = row.get("stat_detail_ab")
     if not isinstance(stat, dict):
         return None
+
+    # 连续型 log_mean：用 log 空间 effect_log / pooled_std_log 算 Cohen's d
+    if metric_type == "continuous_log":
+        effect_log = stat.get("effect_log")
+        pooled_std_log = stat.get("pooled_std_log")
+        if effect_log is None or pooled_std_log is None:
+            return None
+        try:
+            el = float(effect_log)
+            psl = float(pooled_std_log)
+            if psl <= 0:
+                return None
+            d_log = abs(el / psl)
+            if d_log <= 0:
+                return None
+            return SampleSizeCalculation.calculate_for_means(
+                mde=d_log,
+                alpha=alpha,
+                power=power,
+                sided=sided,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    # 连续型 mean / mann_whitney：原始空间 effect_ab（均值差）/ pooled_std
     pooled_std = stat.get("pooled_std")
     if pooled_std is None or effect_ab is None:
         return None
@@ -682,7 +718,7 @@ def compute_did(
 
     返回：
     - DataFrame，列含：metric, variant_group[, 分层列], base_value, variant_value, effect_aa, effect_ab, did_effect, p_value, aa_significant, ab_significant, n_base, n_variant, n_required, effect_n_required, sample_sufficient。
-      n_required 继承 AB 报告的 sample_size_plan.n_per_group；effect_n_required 为根据 effect_ab 计算的检测该效应所需每组最低样本量；sample_sufficient 为 n_variant >= n_required。
+      n_required 继承 AB 报告的 sample_size_plan.n_per_group；effect_n_required 按 effect_ab（或 log 空间的 effect_log）计算，且优先使用同行的 sample_size_plan 的 alpha/power 以与 run 一致；sample_sufficient 为 n_variant >= n_required。
     仅保留在两表中均能对齐成功的行（inner join）。
     """
     if merge_on is not None:

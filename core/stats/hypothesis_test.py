@@ -187,7 +187,9 @@ class HypothesisTest:
         ci_low_ratio = math.exp(ci_low_log)
         ci_high_ratio = math.exp(ci_high_log)
 
-        # 原始空间的合并标准差，供 DID 计算 Cohen's d 与所需样本量
+        # log 空间合并标准差，供 effect_n_required 在 log 空间算 Cohen's d
+        pooled_std_log = self._pooled_std(control_log, variant_log)
+        # 原始空间合并标准差（可选，供其他场景）
         pooled_std = self._pooled_std(control_list, variant_list)
 
         result = {
@@ -204,6 +206,8 @@ class HypothesisTest:
             "alpha": alpha,
             "alternative": alternative,
         }
+        if pooled_std_log is not None:
+            result["pooled_std_log"] = pooled_std_log
         if pooled_std is not None:
             result["pooled_std"] = pooled_std
         return result
