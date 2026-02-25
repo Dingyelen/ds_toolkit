@@ -1,6 +1,6 @@
 import math
 from statistics import mean, variance
-from typing import Dict, Iterable, List, Mapping, Sequence, Tuple
+from typing import Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 
 def _normal_cdf(x: float) -> float:
@@ -107,7 +107,10 @@ class HypothesisTest:
         p_value = self._p_value_from_z(z_stat, alternative)
         alpha = 1.0 - confidence_level
 
-        return {
+        # 合并标准差，供 DID 等场景计算 Cohen's d 与所需样本量
+        pooled_std = self._pooled_std(control_list, variant_list)
+
+        result = {
             "metric_type": "continuous",
             "control_mean": control_mean,
             "variant_mean": variant_mean,
@@ -119,6 +122,9 @@ class HypothesisTest:
             "alpha": alpha,
             "alternative": alternative,
         }
+        if pooled_std is not None:
+            result["pooled_std"] = pooled_std
+        return result
 
     def log_mean_test(
         self,
@@ -181,7 +187,10 @@ class HypothesisTest:
         ci_low_ratio = math.exp(ci_low_log)
         ci_high_ratio = math.exp(ci_high_log)
 
-        return {
+        # 原始空间的合并标准差，供 DID 计算 Cohen's d 与所需样本量
+        pooled_std = self._pooled_std(control_list, variant_list)
+
+        result = {
             "metric_type": "continuous_log",
             "control_mean_log": control_mean_log,
             "variant_mean_log": variant_mean_log,
@@ -195,6 +204,9 @@ class HypothesisTest:
             "alpha": alpha,
             "alternative": alternative,
         }
+        if pooled_std is not None:
+            result["pooled_std"] = pooled_std
+        return result
 
     def proportion_test(
         self,
@@ -423,7 +435,10 @@ class HypothesisTest:
         # 这里的 alpha 仅用于输出方便，具体显著性水平仍由上层控制
         alpha = 0.05
 
-        return {
+        # 原始空间的合并标准差（需每组至少 2 个样本），供 DID 计算所需样本量
+        pooled_std = self._pooled_std(control_list, variant_list)
+
+        result = {
             "metric_type": "continuous_rank",
             "u_statistic": u2,
             "z_statistic": z_stat,
@@ -433,6 +448,34 @@ class HypothesisTest:
             "n_variant": n2,
             "alternative": alternative,
         }
+        if pooled_std is not None:
+            result["pooled_std"] = pooled_std
+        return result
+
+    @staticmethod
+    def _pooled_std(
+        control_list: Sequence[float],
+        variant_list: Sequence[float],
+    ) -> Optional[float]:
+        """
+        计算两独立样本的合并标准差，用于 Cohen's d 与样本量估算。
+
+        公式：pooled_std = sqrt(((n1-1)*var1 + (n2-1)*var2) / (n1+n2-2))
+        要求每组至少 2 个样本，否则返回 None。
+        """
+        n1, n2 = len(control_list), len(variant_list)
+        if n1 < 2 or n2 < 2:
+            return None
+        try:
+            var1 = variance(control_list)
+            var2 = variance(variant_list)
+        except Exception:
+            return None
+        df = n1 + n2 - 2
+        if df <= 0:
+            return None
+        pooled_var = ((n1 - 1) * var1 + (n2 - 1) * var2) / df
+        return math.sqrt(pooled_var)
 
     @staticmethod
     def _to_float_list(values: Iterable[float], name: str) -> List[float]:

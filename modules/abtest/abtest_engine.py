@@ -556,3 +556,156 @@ def run_ab_test(
     final_cols = other_cols + [c for c in last_three if c in out.columns]
     return out[final_cols]
 
+
+def _n_required_for_did_row(
+    row: Dict[str, Any],
+    alpha: float,
+    power: float,
+    sided: str,
+) -> Optional[int]:
+    """
+    根据 DID 合并行（含 AB 阶段 stat_detail）计算检测当前效应所需每组最小样本量。
+
+    比例型：baseline_rate=base_value_ab，mde=abs(effect_ab)，调用 calculate_for_proportions；
+    连续型：从 stat_detail_ab 取出 pooled_std，Cohen's d = effect_ab / pooled_std，调用 calculate_for_means。
+    无法计算时返回 None。
+    """
+    metric_type = row.get("metric_type_ab") or row.get("metric_type_aa")
+    effect_ab = row.get("effect_ab")
+
+    if metric_type == "proportion":
+        base_value = row.get("base_value_ab")
+        if base_value is None or effect_ab is None:
+            return None
+        try:
+            baseline = float(base_value)
+            mde = abs(float(effect_ab))
+            if not 0.0 < baseline < 1.0 or mde <= 0 or baseline + mde >= 1.0:
+                return None
+            return SampleSizeCalculation.calculate_for_proportions(
+                baseline_rate=baseline,
+                mde=mde,
+                alpha=alpha,
+                power=power,
+                sided=sided,
+            )
+        except (TypeError, ValueError):
+            return None
+
+    # 连续型：从 stat_detail 提出 pooled_std
+    stat = row.get("stat_detail_ab")
+    if not isinstance(stat, dict):
+        return None
+    pooled_std = stat.get("pooled_std")
+    if pooled_std is None or effect_ab is None:
+        return None
+    try:
+        ps = float(pooled_std)
+        if ps <= 0:
+            return None
+        d = abs(float(effect_ab) / ps)
+        if d <= 0:
+            return None
+        return SampleSizeCalculation.calculate_for_means(
+            mde=d,
+            alpha=alpha,
+            power=power,
+            sided=sided,
+        )
+    except (TypeError, ValueError):
+        return None
+
+
+def compute_did(
+    aa_result: pd.DataFrame,
+    ab_result: pd.DataFrame,
+    merge_on: Optional[List[str]] = None,
+    alpha: float = 0.05,
+    power: float = 0.8,
+    sided: str = "two-sided",
+) -> pd.DataFrame:
+    """
+    基于 AA / AB 两阶段 run_ab_test 结果，计算双重差分（DID）点估计，并评估样本量是否充足。
+
+    数据层面：
+    - AA：run_ab_test(..., target_phases=["before"]) → 每 (metric, variant_group) 的 effect、p_value 等；
+    - AB：run_ab_test(..., target_phases=["after"]) → 同样结构。
+    两表按 (metric, variant_group) 对齐，DID 数值为 did_effect = effect_ab - effect_aa。
+
+    参数：
+    - aa_result: AA 阶段 run_ab_test 返回的 DataFrame（如 target_phases=["before"]）；
+    - ab_result: AB 阶段 run_ab_test 返回的 DataFrame（如 target_phases=["after"]）；
+    - merge_on: 对齐键列，默认 ["metric", "variant_group"]；
+    - alpha: 样本量计算用显著性水平，默认 0.05；
+    - power: 样本量计算用统计功效，默认 0.8；
+    - sided: 样本量计算用双侧/单侧，默认 "two-sided"。
+
+    返回：
+    - DataFrame，仅包含以下列（不包含统计学过程参数）：
+      * 标识：metric, variant_group；
+      * 效应与 DID：effect_aa, effect_ab, did_effect；
+      * 显著性（AB 阶段）：p_value, is_significant；
+      * 报表用（AB 阶段）：n_base, n_variant, base_value, variant_value；
+      * 样本量双保险：n_required（检测当前效应所需每组最小样本量）、n_actual（min(n_base,n_variant)）、sample_sufficient（是否充足）。
+    仅保留在两表中均能对齐成功的行（inner join）。
+    """
+    key = merge_on if merge_on is not None else ["metric", "variant_group"]
+    required = set(key) | {"effect", "p_value", "is_significant", "metric_type"}
+    for name, frame in [("aa_result", aa_result), ("ab_result", ab_result)]:
+        missing = required - set(frame.columns)
+        if missing:
+            raise ValueError(
+                f"{name} 缺少列 {sorted(missing)}，无法计算 DID。"
+                "请确保为 run_ab_test 返回的 DataFrame，且包含 metric、variant_group、effect、p_value、is_significant、metric_type。"
+            )
+
+    merged = aa_result.merge(
+        ab_result,
+        on=key,
+        how="inner",
+        suffixes=("_aa", "_ab"),
+    )
+    merged["did_effect"] = merged["effect_ab"] - merged["effect_aa"]
+
+    # 根据效应值计算最小样本量（从 stat_detail_ab 提出 pooled_std 用于连续型）
+    merged["n_required"] = merged.apply(
+        lambda r: _n_required_for_did_row(r, alpha, power, sided),
+        axis=1,
+    )
+    if "n_base_ab" in merged.columns and "n_variant_ab" in merged.columns:
+        merged["n_actual"] = merged[["n_base_ab", "n_variant_ab"]].min(axis=1)
+    else:
+        merged["n_actual"] = pd.NA
+    merged["sample_sufficient"] = (
+        merged["n_required"].notna()
+        & merged["n_actual"].notna()
+        & (merged["n_actual"] >= merged["n_required"])
+    )
+
+    # 按约定字段布局输出：variant_group 后紧跟 AB 阶段对照组/实验组数值，再为效应与显著性等
+    out_cols: List[str] = list(key) + [
+        "base_value_ab",
+        "variant_value_ab",
+        "effect_aa",
+        "effect_ab",
+        "did_effect",
+        "p_value_ab",
+        "is_significant_ab",
+        "n_base_ab",
+        "n_variant_ab",
+        "n_required",
+        "n_actual",
+        "sample_sufficient",
+    ]
+    renames = {
+        "p_value_ab": "p_value",
+        "is_significant_ab": "is_significant",
+        "n_base_ab": "n_base",
+        "n_variant_ab": "n_variant",
+        "base_value_ab": "base_value",
+        "variant_value_ab": "variant_value",
+    }
+    out = merged[[c for c in out_cols if c in merged.columns]].copy()
+    out = out.rename(columns=renames)
+    return out
+
