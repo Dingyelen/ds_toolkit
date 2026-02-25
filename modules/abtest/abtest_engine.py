@@ -681,7 +681,8 @@ def compute_did(
     - alpha / power / sided: 样本量计算用参数。
 
     返回：
-    - DataFrame，列含：metric, variant_group[, 分层列], base_value, variant_value, effect_aa, effect_ab, did_effect, p_value, is_significant, n_base, n_variant, n_required, n_actual, sample_sufficient。
+    - DataFrame，列含：metric, variant_group[, 分层列], base_value, variant_value, effect_aa, effect_ab, did_effect, p_value, aa_significant, ab_significant, n_base, n_variant, n_required, effect_n_required, sample_sufficient。
+      n_required 继承 AB 报告的 sample_size_plan.n_per_group；effect_n_required 为根据 effect_ab 计算的检测该效应所需每组最低样本量；sample_sufficient 为 n_variant >= n_required。
     仅保留在两表中均能对齐成功的行（inner join）。
     """
     if merge_on is not None:
@@ -705,22 +706,31 @@ def compute_did(
     )
     merged["did_effect"] = merged["effect_ab"] - merged["effect_aa"]
 
-    # 根据效应值计算最小样本量（从 stat_detail_ab 提出 pooled_std 用于连续型）
-    merged["n_required"] = merged.apply(
+    # n_required：继承 AB 报告的 sample_size_plan 中的 n_per_group（若缺失则为空）
+    if "sample_size_plan_ab" in merged.columns:
+        merged["n_required"] = merged["sample_size_plan_ab"].apply(
+            lambda x: x.get("n_per_group") if isinstance(x, dict) else None
+        )
+    else:
+        merged["n_required"] = pd.NA
+
+    # sample_sufficient：用 n_required 与 n_variant（实验组样本量）对比
+    if "n_variant_ab" in merged.columns:
+        merged["sample_sufficient"] = (
+            merged["n_required"].notna()
+            & merged["n_variant_ab"].notna()
+            & (merged["n_variant_ab"] >= merged["n_required"])
+        )
+    else:
+        merged["sample_sufficient"] = False
+
+    # effect_n_required：根据 effect_ab 计算检测该效应所需每组最低样本量（连续型用 stat_detail_ab 的 pooled_std）
+    merged["effect_n_required"] = merged.apply(
         lambda r: _n_required_for_did_row(r, alpha, power, sided),
         axis=1,
     )
-    if "n_base_ab" in merged.columns and "n_variant_ab" in merged.columns:
-        merged["n_actual"] = merged[["n_base_ab", "n_variant_ab"]].min(axis=1)
-    else:
-        merged["n_actual"] = pd.NA
-    merged["sample_sufficient"] = (
-        merged["n_required"].notna()
-        & merged["n_actual"].notna()
-        & (merged["n_actual"] >= merged["n_required"])
-    )
 
-    # 按约定字段布局输出：variant_group 后紧跟 AB 阶段对照组/实验组数值，再为效应与显著性等
+    # 按约定字段布局输出：variant_group 后紧跟 AB 阶段对照组/实验组数值，再为效应与显著性等（不含 n_actual）
     out_cols: List[str] = list(key) + [
         "base_value_ab",
         "variant_value_ab",
@@ -728,16 +738,18 @@ def compute_did(
         "effect_ab",
         "did_effect",
         "p_value_ab",
+        "is_significant_aa",
         "is_significant_ab",
         "n_base_ab",
         "n_variant_ab",
         "n_required",
-        "n_actual",
+        "effect_n_required",
         "sample_sufficient",
     ]
     renames = {
         "p_value_ab": "p_value",
-        "is_significant_ab": "is_significant",
+        "is_significant_aa": "aa_significant",
+        "is_significant_ab": "ab_significant",
         "n_base_ab": "n_base",
         "n_variant_ab": "n_variant",
         "base_value_ab": "base_value",
