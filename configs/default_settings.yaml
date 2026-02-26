@@ -1,59 +1,6 @@
-# ds_toolkit 默认配置模板
-# 业务参数请在此或各任务专属 yaml 中配置，禁止在代码中硬编码
+# ds_toolkit 默认配置
+# 仅保留当前已开发模块实际使用的配置，禁止在代码中硬编码业务路径。
 
-# 工作目录初始化（core/utils/file_made.py ProjectInitializer 用）
+# 工作目录初始化（core/utils.file_made.ProjectInitializer 用）
 workspace_settings:
   base_path: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio"
-
-# 文件读写（core/utils/file_io DataLoader 用）
-file_io:
-  encodings:
-    - "utf-8"
-    - "gbk"
-    - "gb18030"
-
-# 通用路径（示例，按需覆盖）
-paths:
-  input_dir: "./data/input"
-  output_dir: "./data/output"
-  report_dir: "./reports"
-
-# 通用阈值（示例）
-thresholds:
-  p_value: 0.05
-  min_sample_size: 100
-
-# 留存相关（retention 模块用）
-retention:
-  days: 30
-  cohort_date_col: "date"
-  user_id_col: "user_id"
-
-# AB 实验相关（ab_test 模块用）
-ab_test:
-  metric_col: "metric"
-  group_col: "group"
-  min_effect_size: 0.01
-
-# 数据清洗（cleaner 模块用）
-cleaner:
-  missing_threshold: 0.5
-  duplicate_subset: []  # 去重依据列，空则整行
-
-# 收入/ LTV（revenue 模块用）
-revenue:
-  revenue_col: "revenue"
-  date_col: "date"
-  horizon_days: 365
-
-# 建模（modeling 模块用）
-modeling:
-  target_col: "target"
-  test_ratio: 0.2
-  random_state: 42
-
-# 报表/可视化（reporter 模块用）
-reporter:
-  figure_dpi: 150
-  figure_format: "png"
-  font_family: ""  # 留空则使用系统默认，mac 下可设以正确显示中文

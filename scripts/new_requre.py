@@ -9,9 +9,7 @@ _project_root = Path(__file__).resolve().parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-import yaml
-
-from core.utils import ProjectInitializer
+from core.utils import ProjectInitializer, load_yaml
 
 
 def _load_config() -> dict:
@@ -19,8 +17,7 @@ def _load_config() -> dict:
     config_path = Path(__file__).resolve().parent.parent / "configs" / "default_settings.yaml"
     if not config_path.exists():
         raise FileNotFoundError(f"配置文件不存在：{config_path}")
-    with open(config_path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+    return load_yaml(config_path)
 
 
 if __name__ == "__main__":
