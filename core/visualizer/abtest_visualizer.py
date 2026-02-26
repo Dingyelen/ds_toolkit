@@ -7,28 +7,80 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-def _setup_matplotlib_style() -> None:
+def _setup_matplotlib_style(
+    style_config: Optional[Mapping[str, Any]] = None,
+) -> None:
     """
     初始化 Matplotlib 的字体与负号显示设置。
 
     说明：
-    - 统一使用 Arial Unicode MS 作为优先字体，尽可能覆盖中文与全角符号；
-    - 将 axes.unicode_minus 设为 False，保证负号显示为 "-" 而不是方块。
+    - 默认统一使用 Arial Unicode MS 作为优先字体，尽可能覆盖中文与全角符号；
+      将 axes.unicode_minus 设为 False，保证负号显示为 "-" 而不是方块；
+    - 若传入 style_config（通常来自 visualizer.yaml["matplotlib"]），则优先使用配置，
+      缺失字段回退到上述默认行为。
     """
-    matplotlib.rcParams["axes.unicode_minus"] = False
+    # --- 基础默认值 ---
+    default_unicode_minus = False
+    default_font_family = "sans-serif"
+    default_sans_serif = [
+        "Arial Unicode MS",
+        "Microsoft YaHei",
+        "SimHei",
+        "PingFang SC",
+        "DejaVu Sans",
+    ]
 
-    target_font = "Arial Unicode MS"
+    # 后端与全局 style 可以通过配置注入，但不是强制
+    if style_config is not None:
+        backend = style_config.get("backend")
+        if isinstance(backend, str) and backend.strip():
+            try:
+                matplotlib.use(backend)
+            except Exception:
+                # 后端设置失败时静默回退，避免在 notebook/GUI 环境报错
+                pass
+
+        style_name = style_config.get("style")
+        if isinstance(style_name, str) and style_name.strip():
+            try:
+                plt.style.use(style_name)
+            except Exception:
+                # 不识别的 style 名称时同样静默回退
+                pass
+
+        axes_cfg = style_config.get("axes") or {}
+        unicode_minus = bool(axes_cfg.get("unicode_minus", default_unicode_minus))
+    else:
+        unicode_minus = default_unicode_minus
+
+    matplotlib.rcParams["axes.unicode_minus"] = unicode_minus
+
+    # 字体相关
+    if style_config is not None:
+        font_cfg = style_config.get("font") or {}
+        font_family = font_cfg.get("family", default_font_family)
+        sans_serif_cfg = font_cfg.get("sans_serif")
+        if isinstance(sans_serif_cfg, (list, tuple)) and sans_serif_cfg:
+            sans_serif_list = [str(x) for x in sans_serif_cfg]
+        else:
+            sans_serif_list = default_sans_serif
+    else:
+        font_family = default_font_family
+        sans_serif_list = default_sans_serif
+
+    # 合并配置字体与当前 rcParams 中已有的 sans-serif，避免覆盖用户其他设置
     current: Sequence[str] | str = matplotlib.rcParams.get("font.sans-serif", [])
     if isinstance(current, str):
-        font_list: List[str] = [current]
+        existing_fonts: List[str] = [current]
     else:
-        font_list = list(current)
+        existing_fonts = list(current)
 
-    if target_font not in font_list:
-        font_list.insert(0, target_font)
+    for name in reversed(sans_serif_list):
+        if name not in existing_fonts:
+            existing_fonts.insert(0, name)
 
-    matplotlib.rcParams["font.sans-serif"] = font_list
-    matplotlib.rcParams["font.family"] = "sans-serif"
+    matplotlib.rcParams["font.sans-serif"] = existing_fonts
+    matplotlib.rcParams["font.family"] = font_family
 
 
 def _detect_stratify_cols(df: pd.DataFrame) -> List[str]:
@@ -77,6 +129,7 @@ def style_ab_overview_table(
     effect_col: str = "effect",
     sample_sufficient_col: str = "sample_sufficient",
     max_rows: Optional[int] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> "pd.io.formats.style.Styler":
     """
     根据 AB 实验结果 DataFrame 生成带条件格式的总览表（Styler）。
@@ -143,8 +196,25 @@ def style_ab_overview_table(
 
     styler = df.style
 
+    table_cfg: Mapping[str, Any] = {}
+    if visual_config is not None:
+        abtest_cfg = visual_config.get("abtest") or {}
+        table_cfg = abtest_cfg.get("table") or {}
+
     # p_value 条件格式：p 越小背景越红
     if p_value_col in df.columns:
+
+        p_cfg: Mapping[str, Any] = table_cfg.get("p_value") or {}
+        thr_cfg: Mapping[str, Any] = p_cfg.get("thresholds") or {}
+        color_cfg: Mapping[str, Any] = p_cfg.get("colors") or {}
+
+        strong_thr = float(thr_cfg.get("strong", 0.01))
+        medium_thr = float(thr_cfg.get("medium", 0.05))
+        weak_thr = float(thr_cfg.get("weak", 0.1))
+
+        strong_color = str(color_cfg.get("strong", "#d73027"))
+        medium_color = str(color_cfg.get("medium", "#fc8d59"))
+        weak_color = str(color_cfg.get("weak", "#fee08b"))
 
         def _color_p_value(val: Any) -> str:
             if pd.isna(val):
@@ -153,18 +223,24 @@ def style_ab_overview_table(
                 v = float(val)
             except (TypeError, ValueError):
                 return ""
-            if v < 0.01:
-                return "background-color:#d73027;color:white"
-            if v < 0.05:
-                return "background-color:#fc8d59"
-            if v < 0.1:
-                return "background-color:#fee08b"
+            if v < strong_thr:
+                return f"background-color:{strong_color};color:white"
+            if v < medium_thr:
+                return f"background-color:{medium_color}"
+            if v < weak_thr:
+                return f"background-color:{weak_color}"
             return ""
 
         styler = styler.applymap(_color_p_value, subset=[p_value_col])
 
     # 效应方向用颜色区分：正为绿色，负为红色
     if effect_col in df.columns:
+
+        effect_cfg: Mapping[str, Any] = table_cfg.get("effect") or {}
+        effect_colors: Mapping[str, Any] = effect_cfg.get("colors") or {}
+
+        pos_color = str(effect_colors.get("positive", "#1a9850"))
+        neg_color = str(effect_colors.get("negative", "#d73027"))
 
         def _color_effect(val: Any) -> str:
             if pd.isna(val):
@@ -174,9 +250,9 @@ def style_ab_overview_table(
             except (TypeError, ValueError):
                 return ""
             if v > 0:
-                return "color:#1a9850"
+                return f"color:{pos_color}"
             if v < 0:
-                return "color:#d73027"
+                return f"color:{neg_color}"
             return ""
 
         styler = styler.applymap(_color_effect, subset=[effect_col])
@@ -184,12 +260,18 @@ def style_ab_overview_table(
     # 样本量是否充足：用浅绿/浅橙背景标记
     if sample_sufficient_col in df.columns:
 
+        ss_cfg: Mapping[str, Any] = table_cfg.get("sample_sufficient") or {}
+        ss_colors: Mapping[str, Any] = ss_cfg.get("colors") or {}
+
+        enough_color = str(ss_colors.get("enough", "#c7e9c0"))
+        not_enough_color = str(ss_colors.get("not_enough", "#fee0b6"))
+
         def _color_sample_sufficient(val: Any) -> str:
             if pd.isna(val):
                 return ""
             if bool(val):
-                return "background-color:#c7e9c0"
-            return "background-color:#fee0b6"
+                return f"background-color:{enough_color}"
+            return f"background-color:{not_enough_color}"
 
         styler = styler.applymap(_color_sample_sufficient, subset=[sample_sufficient_col])
 
@@ -202,6 +284,7 @@ def plot_metric_effect_bars(
     phase: Optional[str] = None,
     title: Optional[str] = None,
     stratify_filters: Optional[Mapping[str, Any]] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> plt.Figure:
     """
     绘制单个指标在各实验组上的“基准值 vs 实验值”柱状图，并标注效应方向与数值标签。
@@ -222,7 +305,14 @@ def plot_metric_effect_bars(
     输出：
     - Matplotlib Figure 对象，可在 Jupyter 中直接显示或保存为图片。
     """
-    _setup_matplotlib_style()
+    matplotlib_cfg: Optional[Mapping[str, Any]] = None
+    plot_cfg: Mapping[str, Any] = {}
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or None
+        abtest_cfg = visual_config.get("abtest") or {}
+        plot_cfg = abtest_cfg.get("plot") or {}
+
+    _setup_matplotlib_style(matplotlib_cfg)
 
     if "metric" not in result_df.columns:
         raise ValueError("result_df 中缺少 'metric' 列，无法根据指标筛选。")
@@ -286,19 +376,23 @@ def plot_metric_effect_bars(
     base_positions = [i - width / 2 for i in x]
     variant_positions = [i + width / 2 for i in x]
 
+    metric_bars_cfg: Mapping[str, Any] = plot_cfg.get("metric_effect_bars") or {}
+    base_color = str(metric_bars_cfg.get("base_color", "#cccccc"))
+    variant_color = str(metric_bars_cfg.get("variant_color", "#3182bd"))
+
     base_bars = ax.bar(
         base_positions,
         base_values,
         width=width,
         label=f"{base_group}（对照组）",
-        color="#cccccc",
+        color=base_color,
     )
     variant_bars = ax.bar(
         variant_positions,
         variant_values,
         width=width,
         label="实验组",
-        color="#3182bd",
+        color=variant_color,
     )
 
     ax.set_xticks(list(x))
@@ -381,6 +475,7 @@ def plot_forest_for_metric(
     phase: Optional[str] = None,
     title: Optional[str] = None,
     stratify_filters: Optional[Mapping[str, Any]] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> plt.Figure:
     """
     绘制单个指标的“效应值 + 置信区间”森林图（火柴人图）。
@@ -405,7 +500,11 @@ def plot_forest_for_metric(
     输出：
     - Matplotlib Figure 对象。
     """
-    _setup_matplotlib_style()
+    matplotlib_cfg: Optional[Mapping[str, Any]] = None
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or None
+
+    _setup_matplotlib_style(matplotlib_cfg)
 
     if "metric" not in result_df.columns:
         raise ValueError("result_df 中缺少 'metric' 列，无法根据指标筛选。")
@@ -509,6 +608,7 @@ def plot_segment_heatmap(
     phase: Optional[str] = None,
     title: Optional[str] = None,
     stratify_filters: Optional[Mapping[str, Any]] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> plt.Figure:
     """
     绘制单个指标在不同分层维度与实验组上的热力图。
@@ -537,7 +637,11 @@ def plot_segment_heatmap(
     输出：
     - Matplotlib Figure 对象。
     """
-    _setup_matplotlib_style()
+    matplotlib_cfg: Optional[Mapping[str, Any]] = None
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or None
+
+    _setup_matplotlib_style(matplotlib_cfg)
 
     required_cols = {"metric", stratify_col, "variant_group", value_col}
     missing = required_cols.difference(result_df.columns)
@@ -603,6 +707,7 @@ def plot_did_effect(
     variant_group: Optional[str] = None,
     title: Optional[str] = None,
     stratify_filters: Optional[Mapping[str, Any]] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> plt.Figure:
     """
     绘制单个指标的 DID 前后对比图：effect_aa / effect_ab / did_effect。
@@ -623,7 +728,14 @@ def plot_did_effect(
     输出：
     - Matplotlib Figure 对象。
     """
-    _setup_matplotlib_style()
+    matplotlib_cfg: Optional[Mapping[str, Any]] = None
+    plot_cfg: Mapping[str, Any] = {}
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or None
+        abtest_cfg = visual_config.get("abtest") or {}
+        plot_cfg = abtest_cfg.get("plot") or {}
+
+    _setup_matplotlib_style(matplotlib_cfg)
 
     required_cols = {
         "metric",
@@ -672,26 +784,31 @@ def plot_did_effect(
     effect_ab = data["effect_ab"].astype(float).tolist()
     did_effect = data["did_effect"].astype(float).tolist()
 
+    did_plot_cfg: Mapping[str, Any] = plot_cfg.get("did_effect") or {}
+    aa_color = str(did_plot_cfg.get("effect_aa_color", "#9ecae1"))
+    ab_color = str(did_plot_cfg.get("effect_ab_color", "#3182bd"))
+    did_color = str(did_plot_cfg.get("did_effect_color", "#de2d26"))
+
     bars_aa = ax.bar(
         [i - width for i in x],
         effect_aa,
         width=width,
         label="effect_aa",
-        color="#9ecae1",
+        color=aa_color,
     )
     bars_ab = ax.bar(
         x,
         effect_ab,
         width=width,
         label="effect_ab",
-        color="#3182bd",
+        color=ab_color,
     )
     bars_did = ax.bar(
         [i + width for i in x],
         did_effect,
         width=width,
         label="did_effect",
-        color="#de2d26",
+        color=did_color,
     )
 
     ax.axhline(0.0, color="#aaaaaa", linestyle="--", linewidth=1)
@@ -738,6 +855,7 @@ def plot_metric_distribution(
     bins: int = 40,
     density: bool = True,
     title: Optional[str] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> plt.Figure:
     """
     绘制连续型指标在对照组与实验组上的分布诊断图（直方图叠加）。
@@ -763,7 +881,11 @@ def plot_metric_distribution(
     输出：
     - Matplotlib Figure 对象。
     """
-    _setup_matplotlib_style()
+    matplotlib_cfg: Optional[Mapping[str, Any]] = None
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or None
+
+    _setup_matplotlib_style(matplotlib_cfg)
 
     control_series = pd.Series(list(control_samples), dtype="float64")
     variant_series = pd.Series(list(variant_samples), dtype="float64")

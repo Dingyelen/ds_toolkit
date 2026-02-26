@@ -1,0 +1,66 @@
+# 可视化全局配置（非业务参数）
+#
+# 说明：
+# - 仅控制 matplotlib/报表展示风格，不影响统计计算结果；
+# - 若某些字段缺失，代码会回退到内置默认值，保证兼容性。
+
+matplotlib:
+  # 可选：后端与基础样式，一般本地绘图可留空，服务器/CI 上可手动设置。
+  backend: null          # 例如 "Agg"，留空则不强制
+  style: "default"       # 例如 "seaborn-v0_8"
+
+  axes:
+    # 保证负号正常显示为 "-" 而不是方块
+    unicode_minus: false
+
+  font:
+    # 对应 rcParams["font.family"]
+    family: "sans-serif"
+    # 对应 rcParams["font.sans-serif"]，从上到下优先级递减
+    sans_serif:
+      - "Arial Unicode MS"
+      - "Microsoft YaHei"
+      - "SimHei"
+      - "PingFang SC"
+      - "DejaVu Sans"
+
+  savefig:
+    dpi: 150
+    format: "png"
+    bbox_inches: "tight"
+
+abtest:
+  table:
+    # p_value 条件格式阈值与颜色
+    p_value:
+      thresholds:
+        strong: 0.01
+        medium: 0.05
+        weak: 0.1
+      colors:
+        strong: "#d73027"
+        medium: "#fc8d59"
+        weak: "#fee08b"
+
+    # 效应方向颜色
+    effect:
+      colors:
+        positive: "#1a9850"
+        negative: "#d73027"
+        zero: "#000000"
+
+    # 样本是否充足背景色
+    sample_sufficient:
+      colors:
+        enough: "#c7e9c0"
+        not_enough: "#fee0b6"
+
+  plot:
+    metric_effect_bars:
+      base_color: "#cccccc"
+      variant_color: "#3182bd"
+    did_effect:
+      effect_aa_color: "#9ecae1"
+      effect_ab_color: "#3182bd"
+      did_effect_color: "#de2d26"
+

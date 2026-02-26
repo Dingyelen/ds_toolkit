@@ -260,6 +260,7 @@ def _load_visual_config(raw_cfg: Mapping[str, Any]) -> AbTestReportVisualConfig:
 def _build_overview_table(
     ab_result: pd.DataFrame,
     max_rows: Optional[int] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> "pd.io.formats.style.Styler":
     """
     基于 AB 实验结果构建总览表 Styler。
@@ -271,6 +272,7 @@ def _build_overview_table(
     return style_ab_overview_table(
         result_df=ab_result,
         max_rows=max_rows,
+        visual_config=visual_config,
     )
 
 
@@ -278,6 +280,7 @@ def _generate_metric_effect_bars_images(
     ab_result: pd.DataFrame,
     visual_cfg: MetricEffectBarsVisualConfig,
     figure_dir: Path,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> List[Tuple[str, Path]]:
     """
     根据配置生成各指标的“基准 vs 实验”柱状图，并保存为 PNG。
@@ -297,12 +300,22 @@ def _generate_metric_effect_bars_images(
     _ensure_directory(metric_dir)
 
     outputs: List[Tuple[str, Path]] = []
+
+    savefig_cfg: Mapping[str, Any] = {}
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or {}
+        savefig_cfg = matplotlib_cfg.get("savefig") or {}
+
+    dpi = int(savefig_cfg.get("dpi", 150))
+    bbox_inches = savefig_cfg.get("bbox_inches", "tight")
     for cfg in visual_cfg.items:
         fig = plot_metric_effect_bars(
             result_df=ab_result,
             metric=cfg.name,
             phase=cfg.phase,
+            title=None,
             stratify_filters=cfg.stratify_filters,
+            visual_config=visual_config,
         )
         title = cfg.name
         if cfg.phase is not None:
@@ -313,7 +326,7 @@ def _generate_metric_effect_bars_images(
             file_name += f"__{cfg.phase}"
         file_path = metric_dir / f"{file_name}.png"
 
-        fig.savefig(file_path, dpi=150, bbox_inches="tight")
+        fig.savefig(file_path, dpi=dpi, bbox_inches=bbox_inches)
         outputs.append((title, file_path))
 
     return outputs
@@ -323,6 +336,7 @@ def _generate_did_effect_images(
     did_result: Optional[pd.DataFrame],
     visual_cfg: DidEffectVisualConfig,
     figure_dir: Path,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> List[Tuple[str, Path]]:
     """
     根据配置生成各指标的 DID 效应图，并保存为 PNG。
@@ -344,11 +358,22 @@ def _generate_did_effect_images(
     _ensure_directory(did_dir)
 
     outputs: List[Tuple[str, Path]] = []
+
+    savefig_cfg: Mapping[str, Any] = {}
+    if visual_config is not None:
+        matplotlib_cfg = visual_config.get("matplotlib") or {}
+        savefig_cfg = matplotlib_cfg.get("savefig") or {}
+
+    dpi = int(savefig_cfg.get("dpi", 150))
+    bbox_inches = savefig_cfg.get("bbox_inches", "tight")
     for cfg in visual_cfg.items:
         fig = plot_did_effect(
             did_df=did_result,
             metric=cfg.metric,
             variant_group=cfg.variant_group,
+            title=None,
+            stratify_filters=None,
+            visual_config=visual_config,
         )
         if cfg.variant_group is None:
             title = cfg.metric
@@ -358,7 +383,7 @@ def _generate_did_effect_images(
             file_name = f"{cfg.metric}__{cfg.variant_group}"
 
         file_path = did_dir / f"{file_name}.png"
-        fig.savefig(file_path, dpi=150, bbox_inches="tight")
+        fig.savefig(file_path, dpi=dpi, bbox_inches=bbox_inches)
         outputs.append((title, file_path))
 
     return outputs
@@ -451,6 +476,7 @@ def generate_abtest_report(
     did_result: Optional[pd.DataFrame],
     report_config: Mapping[str, Any],
     output_path: Optional[str] = None,
+    visual_config: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     生成 AB 实验报表（含总览表 + DID 表 + 嵌入图片的 Excel）。
@@ -470,17 +496,23 @@ def generate_abtest_report(
     output_cfg = _load_output_config(report_config, output_path=output_path)
     visual_cfg = _load_visual_config(report_config)
 
-    overview_styler = _build_overview_table(ab_result=ab_result)
+    overview_styler = _build_overview_table(
+        ab_result=ab_result,
+        max_rows=None,
+        visual_config=visual_config,
+    )
 
     metric_figs = _generate_metric_effect_bars_images(
         ab_result=ab_result,
         visual_cfg=visual_cfg.metric_effect_bars,
         figure_dir=output_cfg.figure_temp_dir,
+        visual_config=visual_config,
     )
     did_figs = _generate_did_effect_images(
         did_result=did_result,
         visual_cfg=visual_cfg.did_effect,
         figure_dir=output_cfg.figure_temp_dir,
+        visual_config=visual_config,
     )
 
     excel_path = _write_excel_with_images(

@@ -63,6 +63,12 @@ def run_abtest_report(
     ab_cfg_raw = load_yaml(ab_cfg_path)
     ab_config = load_abtest_config(ab_cfg_raw)
 
+    # 可视化配置（非必需；若缺失则使用 core.visualizer 默认样式）
+    visual_config_path = project_root / "configs" / "visualizer.yaml"
+    visual_config: Optional[Mapping[str, Any]] = None
+    if visual_config_path.exists():
+        visual_config = load_yaml(visual_config_path)
+
     data_loader = DataLoader()
     df = data_loader.read_data(data_file)
 
@@ -91,6 +97,7 @@ def run_abtest_report(
         did_result=did_result,
         report_config=report_config,
         output_path=str(out_file),
+        visual_config=visual_config,
     )
 
     metric_figures = outputs.get("metric_figures", [])
