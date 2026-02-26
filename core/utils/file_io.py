@@ -18,9 +18,10 @@ try:
 except ImportError:
     _logger = None
 
-# 文本类后缀用 read_csv，Excel 用 read_excel
+# 文本类后缀用 read_csv，Excel 用 read_excel，Parquet 用 read_parquet
 _CSV_LIKE_SUFFIXES = {".csv", ".txt"}
 _EXCEL_SUFFIXES = {".xlsx", ".xls"}
+_PARQUET_SUFFIXES = {".parquet"}
 
 
 class DataLoader:
@@ -32,6 +33,7 @@ class DataLoader:
                       可由 configs 中 file_io.encodings 注入。
     Output:
         无（构造器）。实际数据通过 read_data() 返回 DataFrame。
+    支持格式：.csv / .txt、.xlsx / .xls、.parquet。
     """
 
     def __init__(
@@ -60,13 +62,13 @@ class DataLoader:
 
         Input:
             file_path: 文件路径（字符串或 Path）。
-            **kwargs: 透传给 pd.read_csv 或 pd.read_excel 的参数，
+            **kwargs: 透传给 pd.read_csv / pd.read_excel / pd.read_parquet 的参数，
                       如 sheet_name, sep, header, usecols 等。
         Output:
             pd.DataFrame: 读取后的数据表。
         逻辑:
             1. 校验文件存在性，不存在则记录日志（若有）并抛出中文异常。
-            2. 根据后缀选择读取方式：.csv/.txt -> read_csv；.xlsx/.xls -> read_excel。
+            2. 根据后缀选择读取方式：.csv/.txt -> read_csv；.xlsx/.xls -> read_excel；.parquet -> read_parquet。
             3. 对 CSV/TXT：按 encoding_list 依次尝试编码，直到成功。
             4. 其余参数通过 **kwargs 原样传给 Pandas。
         """
@@ -82,10 +84,12 @@ class DataLoader:
             return self._read_csv_with_encoding(path, **kwargs)
         if suffix in _EXCEL_SUFFIXES:
             return pd.read_excel(path, **kwargs)
+        if suffix in _PARQUET_SUFFIXES:
+            return pd.read_parquet(path, **kwargs)
 
         raise ValueError(
             f"不支持的文件格式：{suffix}。"
-            f"当前支持：{', '.join(_CSV_LIKE_SUFFIXES | _EXCEL_SUFFIXES)}。"
+            f"当前支持：{', '.join(sorted(_CSV_LIKE_SUFFIXES | _EXCEL_SUFFIXES | _PARQUET_SUFFIXES))}。"
         )
 
     def _read_csv_with_encoding(
