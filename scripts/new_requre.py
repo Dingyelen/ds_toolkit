@@ -22,7 +22,7 @@ def _load_config() -> dict:
 
 if __name__ == "__main__":
     # ---------- 只需修改下面三个变量，即可快速创建需求目录 ----------
-    REQURE_ID = "TP1-20260210-014"       # 需求 ID
+    REQURE_ID = "TP1-20260210-011"       # 需求 ID
     REQUESTER = "SJ"      # 项目/部门
     REQ_NAME = "新版赛车活动效果分析"      # 需求名称
     # 不填则使用 configs 中 workspace_settings.base_path
@@ -30,6 +30,9 @@ if __name__ == "__main__":
 
     config = _load_config()
     ws = config.get("workspace_settings") or {}
+    excel_style = config.get("excel_defaults") or {}
+    excel_template_cfg = config.get("excel_template") or {}
+    excel_template_path = excel_template_cfg.get("path")
     base_path = BASE_PATH or ws.get("base_path")
     if not base_path:
         raise ValueError(
@@ -42,4 +45,6 @@ if __name__ == "__main__":
         requester=REQUESTER,
         req_name=REQ_NAME,
         base_path=base_path,
+        excel_style=excel_style,
+        excel_template=excel_template_path,
     )
