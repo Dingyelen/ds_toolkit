@@ -7,9 +7,8 @@ data/
 output/
 
 # --- 配置与敏感信息 ---
-# 如果你的 yaml 里写了数据库密码，建议忽略具体的配置文件
-# configs/*.yaml
-# 但为了保留结构，可以同步一个模板：configs/default_settings.yaml.example
+# 本地数据库连接信息（含密码或 token），勿提交
+configs/db_local.yaml
 
 # --- Cursor & AI 提示词 ---
 # 如果你不想别人看到你的 .cursorrules 指令，取消下面这行的注释
