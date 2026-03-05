@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional, Union
 import os
 
 try:
@@ -126,13 +126,18 @@ def _build_api_config(db_cfg: Dict[str, Any]) -> ApiQueryConfig:
     )
 
 
-def run_for_workspace(requre_dir_name: str) -> None:
+def run_for_workspace(
+    requre_dir_name: str,
+    pass_sql: Optional[Union[str, list[str]]] = None,
+) -> None:
     """
     针对单个需求工作目录，执行 sql/*.sql 并将结果导出为 *_res.csv。
 
     输入：
         requre_dir_name: 需求目录名称（不含 base_path），
                          如 "2025-02-28_RE001_运营部_留存分析"。
+        pass_sql: 需要跳过不执行的 SQL 文件名（含 .sql 后缀），默认为 None 表示全部执行。
+                 可传单个文件名 str，或文件名列表 list[str]，如 ["old_query.sql", "tmp.sql"]。
     输出：
         无。结果以 CSV 文件形式写入需求目录根目录。
     异常：
@@ -163,6 +168,18 @@ def run_for_workspace(requre_dir_name: str) -> None:
     sql_files = list_sql_files(sql_dir)
     if not sql_files:
         print(f"[提示] 目录中未找到任何 .sql 文件：{sql_dir}")
+        return
+
+    # 根据 pass_sql 过滤需要跳过的文件
+    pass_set: set[str] = set()
+    if pass_sql is not None:
+        pass_set = {s if s.endswith(".sql") else f"{s}.sql" for s in (pass_sql if isinstance(pass_sql, list) else [pass_sql])}
+    sql_files = [p for p in sql_files if p.name not in pass_set]
+    if pass_set:
+        print(f"[信息] 已跳过：{', '.join(sorted(pass_set))}")
+
+    if not sql_files:
+        print(f"[提示] 过滤后无待执行的 .sql 文件。")
         return
 
     total = len(sql_files)
@@ -199,11 +216,16 @@ if __name__ == "__main__":
     # 例如：2025-02-28_RE001_运营部_留存分析
     REQURE_DIR_NAME = "2026-02-26_TP1-20260210-014_SJ_新版赛车活动效果分析"
 
+    # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
+    # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
+    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql04.sql']
+    # PASS_SQL: Optional[Union[str, list[str]]] = ['sql02.sql', 'sql03.sql', 'sql04.sql']
+
     if not REQURE_DIR_NAME:
         raise ValueError(
             "请先在 scripts/run_sql_export.py 中设置 REQURE_DIR_NAME，"
             "然后再运行本脚本。"
         )
 
-    run_for_workspace(REQURE_DIR_NAME)
+    run_for_workspace(REQURE_DIR_NAME, pass_sql=PASS_SQL)
 
