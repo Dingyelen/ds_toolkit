@@ -1,0 +1,69 @@
+# 活动排期表解析配置示例。
+# 使用前请根据实际文件路径与表结构进行修改。
+
+# 待解析的排期 Excel 文件（相对项目根目录或绝对路径）
+input_file: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio/9999-99-99 dim/TP 1/😈Tripeaks活动排期表🍀.xlsx"
+
+# 需要解析的 Sheet 名称列表（可选，二选一）
+# 若同时配置 names 与 name_pattern，则优先使用 names
+sheets:
+  names: []
+  # 使用正则匹配 sheet 名称，示例：".*甘特.*"
+  name_pattern: ""
+
+# 是否在结果中增加来源 sheet 名称列
+output_meta:
+  add_sheet_name: true
+  sheet_name_field: "sheet_name"
+
+# 表头与结构信息（行列索引均从 1 开始）
+structure:
+  header_row_index: 1          # 日期行所在行号
+  empty_row_index: 0           # 空白行或预留行
+  project_col_index: 1         # 项目列
+  category_col_index: 2        # 活动类别列
+  data_start_col_index: 3      # 活动区起始列
+
+# 日期与时间解析
+datetime:
+  # 日期单元格格式（可按需调整）
+  date_format: "%m/%d"
+  # 若单元格仅有月/日，则使用的默认年份
+  default_year: 2025
+
+# 文本解析规则
+text_rules:
+  # 负责人解析：括号中的内容视为负责人
+  # 示例：（张三）活动名 / (张三) 活动名 / [张三] 活动名
+  owner_pattern: "[（(\\[](?P<owner>.+?)[）)\\]]"
+  owner_missing_default: ""
+
+  # 时间段解析：示例 "1/4 12:00 - 1/9 12:00" 或 "12/6 12:00-12/8 12:00"
+  time_range_regex: >
+    (?P<start_m>\d{1,2})/(?P<start_d>\d{1,2})\s+
+    (?P<start_h>\d{1,2}):(?P<start_min>\d{2})\s*
+    [-~]\s*
+    (?P<end_m>\d{1,2})/(?P<end_d>\d{1,2})\s+
+    (?P<end_h>\d{1,2}):(?P<end_min>\d{2})
+
+# “n天” 备注块过滤配置
+duration_note:
+  enabled: true
+  # 匹配“3天” / "10 天" 这类文本
+  pattern: "^\\d+\\s*天$"
+
+# 结果输出配置
+output:
+  # 输出文件路径（相对项目根目录或绝对路径）
+  file_path: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio/9999-99-99 dim/TP 1/schedule_activities.csv"
+  # 若单元格中包含时间行（例如 "1/4 12:00 - 1/9 12:00"），
+  # 将该行原文写入此列名对应的字段；为空字符串或省略则不输出该列。
+  time_note_field: "time_note"
+  # 导出 CSV 的编码，包含中文时推荐 "gbk" 或 "utf-8-sig"
+  encoding: "gbk"
+  # 编码出错时的处理策略：
+  # - "strict": 默认行为，遇到无法编码的字符直接报错；
+  # - "ignore": 忽略无法编码的字符（适用于含 emoji 等 gbk 不支持字符的情况）；
+  # - "replace": 用占位符替换无法编码的字符。
+  encoding_errors: "ignore"
+
