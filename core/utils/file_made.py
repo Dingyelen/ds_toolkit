@@ -80,7 +80,7 @@ class ProjectInitializer:
         safe_req_id = _sanitize_folder_part(requre_id)
         safe_proj = _sanitize_folder_part(requester)
         safe_name = _sanitize_folder_part(req_name)
-        base_name = f"{today}_{safe_req_id}_{safe_proj}_{safe_name}"
+        base_name = f"{today} {safe_req_id} {safe_proj} {safe_name}"
 
         target_dir = root / base_name
         suffix = 0
