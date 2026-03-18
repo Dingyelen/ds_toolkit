@@ -105,7 +105,9 @@ def _build_api_config(db_cfg: Dict[str, Any]) -> ApiQueryConfig:
     query_url = api_cfg.get("query_url")
     token_header = api_cfg.get("token_header", "X-Token")
     token_env_var = api_cfg.get("token_env_var")
-    timeout = int(api_cfg.get("timeout", 60))
+    timeout = int(api_cfg.get("timeout", 600))
+    retry_count = int(api_cfg.get("retry_count", 2))
+    retry_interval = float(api_cfg.get("retry_interval", 2))
     extra_headers = api_cfg.get("extra_headers") or {}
     extra_body = api_cfg.get("extra_body") or {}
     sql_key = sql_cfg.get("sql_key", "sql")
@@ -120,6 +122,8 @@ def _build_api_config(db_cfg: Dict[str, Any]) -> ApiQueryConfig:
         token_header=token_header,
         token_env_var=token_env_var,
         timeout=timeout,
+        retry_count=retry_count,
+        retry_interval=retry_interval,
         extra_headers=extra_headers,
         extra_body=extra_body,
         sql_key=sql_key,
@@ -214,12 +218,12 @@ if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
     # 需求目录名称：与 new_requre 创建的主目录名一致。
     # 例如：2025-02-28_RE001_运营部_留存分析
-    REQURE_DIR_NAME = "2026-03-16_TP1-20260312-020_ZZJ_活动排期分析"
+    REQURE_DIR_NAME = "2026-03-16 TP1-20260312-021 ZZJ 活动增益分析"
 
     # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
     # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
-    # PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql04.sql']
-    PASS_SQL: Optional[Union[str, list[str]]] = []
+    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql03.sql']
+    # PASS_SQL: Optional[Union[str, list[str]]] = []
 
     if not REQURE_DIR_NAME:
         raise ValueError(

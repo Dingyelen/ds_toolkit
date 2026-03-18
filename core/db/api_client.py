@@ -15,6 +15,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 import os
+import time
 
 import pandas as pd
 import requests
@@ -38,6 +39,8 @@ class ApiQueryConfig:
         token_header: 承载 token 的请求头字段名，例如 "X-Token"。
         token_env_var: 从哪个环境变量中读取 token，例如 "TD_API_TOKEN"。
         timeout: 请求超时时间（秒）。
+        retry_count: 失败后重试次数，0 表示不重试，2 表示最多重试 2 次（共 3 次尝试）。
+        retry_interval: 每次重试前等待秒数。
         extra_headers: 额外固定请求头（除 token 以外），可为空。
         extra_body: POST body 中除 SQL 以外的固定字段（如 project_id、db 等），可为空。
         sql_key: SQL 文本在 body 中对应的字段名，例如 "sql" 或 "query"。
@@ -49,7 +52,9 @@ class ApiQueryConfig:
     query_url: str
     token_header: str
     token_env_var: str
-    timeout: int = 300
+    timeout: int = 600
+    retry_count: int = 2
+    retry_interval: float = 2.0
     extra_headers: Dict[str, str] = field(default_factory=dict)
     extra_body: Dict[str, Any] = field(default_factory=dict)
     sql_key: str = "sql"
@@ -129,13 +134,23 @@ def run_sql(sql: str, cfg: ApiQueryConfig) -> pd.DataFrame:
         body.update(cfg.extra_body)
     body[cfg.sql_key] = sql_text
 
-    try:
-        resp = requests.post(cfg.query_url, headers=headers, json=body, timeout=cfg.timeout)
-    except requests.RequestException as exc:  # pragma: no cover - 网络异常路径
-        msg = f"请求查询接口失败：{cfg.query_url}，错误：{exc!s}"
-        if _logger is not None:
-            _logger.error(msg)
-        raise RuntimeError(msg) from exc
+    try_max = 1 + max(0, cfg.retry_count)
+
+    for attempt in range(try_max):
+        try:
+            resp = requests.post(cfg.query_url, headers=headers, json=body, timeout=cfg.timeout)
+            break
+        except requests.RequestException as exc:
+            last_exc = exc
+            if attempt < try_max - 1:
+                if _logger is not None:
+                    _logger.warning(f"请求失败，第 {attempt + 1}/{try_max} 次，{exc!s}，{cfg.retry_interval}s 后重试。")
+                time.sleep(cfg.retry_interval)
+            else:
+                msg = f"请求查询接口失败（已重试 {cfg.retry_count} 次）：{cfg.query_url}，错误：{exc!s}"
+                if _logger is not None:
+                    _logger.error(msg)
+                raise RuntimeError(msg) from exc
 
     if not resp.ok:
         msg = (
