@@ -4,10 +4,15 @@ core.stats: 统计学底层（T 检验、卡方、正态性检验、留存曲线
 本模块仅提供通用统计学算法，不包含任何业务逻辑。
 """
 
-from .distribution_diagnostics import diagnose_continuous_distribution
+from .distribution_diagnostics import (
+    diagnose_continuous_distribution,
+    quantile_summary,
+    quantile_summary_from_config,
+)
 from .hypothesis_test import HypothesisTest
+from .normality_tests import test_normality
 from .sample_size_calculation import SampleSizeCalculation
-from .retention_fitting import (
+from .fit import (
     fit_exponential_decay,
     predict_exponential_decay,
     fit_weibull_curve,
@@ -20,6 +25,9 @@ __all__ = [
     "HypothesisTest",
     "SampleSizeCalculation",
     "diagnose_continuous_distribution",
+    "quantile_summary",
+    "quantile_summary_from_config",
+    "test_normality",
     "fit_exponential_decay",
     "predict_exponential_decay",
     "fit_weibull_curve",

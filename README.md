@@ -115,6 +115,25 @@ df = loader.read_data("data.csv")
     - `is_heavy_tailed`：是否重尾/极端偏态；
     - `is_zero_inflated`：是否零膨胀（典型为 ARPU）；
     - `recommended_tests`：推荐的检验方法列表（如 `"mean_z_test"`, `"log_mean_test"`, `"mann_whitney_u"`）。
+- **分位数**：`core.stats.distribution_diagnostics.quantile_summary`（依赖 NumPy，剔除 inf/nan 后按百分位输出 `p05`、`p50` 等）。
+- **正态性检验（SciPy）**：`core.stats.normality_tests.test_normality`，支持 `shapiro`、`dagostino`（即 `scipy.stats.normaltest`）、`anderson`。
+
+#### Notebook：分布诊断报表（Markdown + 静态图）
+
+- **模块**：`modules.reporter.distribution_reporter`
+- **说明**：面向「看一眼分布」的参考性输出；**检验项、分位点、分箱等默认写死在 `distribution_reporter` 模块顶部常量**，不配独立 YAML。若需统一中文字体与负号显示，可照旧 `load_yaml("configs/visualizer.yaml")` 将 `matplotlib` 段传入 `build_distribution_report(..., visual_cfg=...)`。
+- **主要 API**：`build_distribution_report`、`display_distribution_report`（Jupyter 内 Markdown + 图）。
+
+```python
+from core.utils import load_yaml
+from modules.reporter import build_distribution_report, display_distribution_report
+
+values = [...]  # 或 df["col"].dropna().tolist()
+visual_cfg = load_yaml("configs/visualizer.yaml")  # 可选，仅样式
+
+bundle = build_distribution_report(values, metric_name="arpu", visual_cfg=visual_cfg)
+display_distribution_report(bundle)  # Notebook 内查看
+```
 
 #### 假设检验（HypothesisTest）
 

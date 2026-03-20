@@ -1,0 +1,6 @@
+# ds_toolkit 运行依赖（可按环境裁剪）
+numpy>=1.22
+pandas>=1.5
+matplotlib>=3.6
+pyyaml>=6.0
+scipy>=1.9

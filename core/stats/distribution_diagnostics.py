@@ -1,6 +1,10 @@
+from __future__ import annotations
+
 import math
 from statistics import mean
-from typing import Dict, Iterable, List, Sequence
+from typing import Dict, Iterable, List, Mapping, Sequence
+
+import numpy as np
 
 
 def _to_float_list(values: Iterable[float], name: str) -> List[float]:
@@ -121,4 +125,46 @@ def diagnose_continuous_distribution(values: Sequence[float]) -> Dict[str, objec
         "is_zero_inflated": is_zero_inflated,
         "recommended_tests": recommended_tests,
     }
+
+
+def quantile_summary(
+    values: Sequence[float],
+    percentiles: Sequence[float],
+) -> Dict[str, float]:
+    """
+    计算给定百分位（0–100）上的样本分位数。
+
+    输入：
+    - values: 数值序列；
+    - percentiles: 百分位列表，如 (5, 25, 50, 75, 95)。
+
+    输出：
+    - 字典，键为 pXX（XX 为整数百分位，如 p05、p50），值为对应分位数。
+      inf/nan 会先被剔除；若剔除后为空则抛出 ValueError。
+    """
+    arr = np.asarray(values, dtype=float)
+    arr = arr[np.isfinite(arr)]
+    if arr.size == 0:
+        raise ValueError("values 在剔除 inf/nan 后为空。")
+    out: Dict[str, float] = {}
+    pct_arr = np.asarray(percentiles, dtype=float)
+    qs = np.percentile(arr, pct_arr)
+    for p, q in zip(pct_arr.ravel(), np.ravel(qs)):
+        key = f"p{int(round(float(p))):02d}"
+        out[key] = float(q)
+    return out
+
+
+def quantile_summary_from_config(
+    values: Sequence[float],
+    percentile_cfg: Mapping[str, Sequence[float]],
+) -> Dict[str, float]:
+    """
+    从字典中读取 percentiles 列表并调用 quantile_summary（与 YAML 无关，便于兼容旧调用）。
+
+    参数 percentile_cfg 示例：{"percentiles": [5, 25, 50, 75, 95]}；
+    若缺省 percentiles 键，则使用 [5, 25, 50, 75, 95]。
+    """
+    pct = percentile_cfg.get("percentiles") or [5, 25, 50, 75, 95]
+    return quantile_summary(values, list(pct))
 

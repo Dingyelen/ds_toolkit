@@ -15,6 +15,7 @@ from .abtest_visualizer import (
     plot_segment_heatmap,
     style_ab_overview_table,
 )
+from .distribution_plots import plot_distribution_diagnostic
 
 __all__ = [
     "style_ab_overview_table",
@@ -23,4 +24,5 @@ __all__ = [
     "plot_segment_heatmap",
     "plot_did_effect",
     "plot_metric_distribution",
+    "plot_distribution_diagnostic",
 ]
