@@ -192,6 +192,7 @@ def run_for_workspace(
 
     success_files: list[str] = []
     failed_files: list[str] = []
+    total_rows_success = 0
 
     for idx, sql_path in enumerate(sql_files, start=1):
         sql_text = read_sql_file(sql_path)
@@ -201,13 +202,20 @@ def run_for_workspace(
             out_name = f"{sql_path.stem}_res.csv"
             out_path = workspace_dir / out_name
             df.to_csv(out_path, index=False)
-            print(f"[完成] 第 {idx} 个：{sql_path.name}")
+            n_rows, n_cols = len(df), len(df.columns)
+            total_rows_success += n_rows
+            print(
+                f"[完成] 第 {idx} 个：{sql_path.name} -> {out_name}，"
+                f"{n_rows} 行，{n_cols} 列"
+            )
             success_files.append(sql_path.name)
         except Exception as exc:
             print(f"[失败] 第 {idx} 个：{sql_path.name}，错误：{exc!s}")
             failed_files.append(sql_path.name)
 
     print(f"[总结] 共 {total} 个 SQL 文件，成功 {len(success_files)} 个，失败 {len(failed_files)} 个。")
+    if success_files:
+        print(f"[总结] 成功导出合计 {total_rows_success} 行（各结果集行数之和）。")
     if success_files:
         print(f"[成功列表] {', '.join(success_files)}")
     if failed_files:
@@ -218,12 +226,13 @@ if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
     # 需求目录名称：与 new_requre 创建的主目录名一致。
     # 例如：2025-02-28_RE001_运营部_留存分析
-    REQURE_DIR_NAME = "2026-02-05 ALL abtest 正交分析"
+    REQURE_DIR_NAME = "2026-04-01 TP1-20260331-026 ZZJ 赛季活跃下降"
 
     # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
     # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
-    # PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql03.sql']
-    PASS_SQL: Optional[Union[str, list[str]]] = []
+    # PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql', 'sql03.sql']
+    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql']
+    # PASS_SQL: Optional[Union[str, list[str]]] = []
 
     if not REQURE_DIR_NAME:
         raise ValueError(
