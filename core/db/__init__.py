@@ -11,7 +11,16 @@ core.db: 数据库与查询相关的底层工具。
 
 from __future__ import annotations
 
-from .api_client import ApiQueryConfig, run_sql
+from .api_client import ApiQueryConfig
+from .query_gateway import QueryRuntimeConfig, build_query_runtime_config, export_sql_to_csv, run_sql
+from .trino_client import TrinoQueryConfig
 
-__all__ = ["ApiQueryConfig", "run_sql"]
+__all__ = [
+    "ApiQueryConfig",
+    "TrinoQueryConfig",
+    "QueryRuntimeConfig",
+    "build_query_runtime_config",
+    "export_sql_to_csv",
+    "run_sql",
+]
 

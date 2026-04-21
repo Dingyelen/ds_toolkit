@@ -3,7 +3,7 @@ scripts/run_sql_export.py
 -------------------------
 
 根据配置与指定的需求目录名称，读取该目录下 sql/*.sql 中的 SQL，
-通过 HTTP 查询 API 执行并将结果保存为 {filename}_res.csv 到需求目录根目录。
+通过统一查询网关执行并将结果保存为 {filename}_res.csv 到需求目录根目录。
 
 使用方式（示例）：
 1. 确保已在 configs/default_settings.yaml 中配置 workspace_settings.base_path；
@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, Literal
 import os
 
 try:
@@ -32,7 +32,9 @@ if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
 from core.utils import load_yaml, list_sql_files, read_sql_file  # noqa: E402
-from core.db import ApiQueryConfig, run_sql  # noqa: E402
+from core.db import build_query_runtime_config, export_sql_to_csv  # noqa: E402
+
+QueryMode = Literal["api", "trino"]
 
 
 def _ensure_env_loaded() -> None:
@@ -88,51 +90,10 @@ def _load_db_config() -> Dict[str, Any]:
     return load_yaml(config_path)
 
 
-def _build_api_config(db_cfg: Dict[str, Any]) -> ApiQueryConfig:
-    """
-    根据 db_local.yaml 的配置字典构造 ApiQueryConfig 对象。
-
-    输入：
-        db_cfg: 从 configs/db_local.yaml 解析得到的字典。
-    输出：
-        ApiQueryConfig: 供 run_sql 使用的配置对象。
-    异常：
-        KeyError: 缺少必要字段时抛出。
-    """
-    api_cfg = db_cfg.get("api") or {}
-    sql_cfg = db_cfg.get("sql") or {}
-
-    query_url = api_cfg.get("query_url")
-    token_header = api_cfg.get("token_header", "X-Token")
-    token_env_var = api_cfg.get("token_env_var")
-    timeout = int(api_cfg.get("timeout", 600))
-    retry_count = int(api_cfg.get("retry_count", 2))
-    retry_interval = float(api_cfg.get("retry_interval", 2))
-    extra_headers = api_cfg.get("extra_headers") or {}
-    extra_body = api_cfg.get("extra_body") or {}
-    sql_key = sql_cfg.get("sql_key", "sql")
-
-    if not query_url:
-        raise KeyError("db_local.yaml 中缺少必填字段：api.query_url")
-    if not token_env_var:
-        raise KeyError("db_local.yaml 中缺少必填字段：api.token_env_var")
-
-    return ApiQueryConfig(
-        query_url=query_url,
-        token_header=token_header,
-        token_env_var=token_env_var,
-        timeout=timeout,
-        retry_count=retry_count,
-        retry_interval=retry_interval,
-        extra_headers=extra_headers,
-        extra_body=extra_body,
-        sql_key=sql_key,
-    )
-
-
 def run_for_workspace(
     requre_dir_name: str,
     pass_sql: Optional[Union[str, list[str]]] = None,
+    mode: QueryMode = "api",
 ) -> None:
     """
     针对单个需求工作目录，执行 sql/*.sql 并将结果导出为 *_res.csv。
@@ -142,6 +103,7 @@ def run_for_workspace(
                          如 "2025-02-28_RE001_运营部_留存分析"。
         pass_sql: 需要跳过不执行的 SQL 文件名（含 .sql 后缀），默认为 None 表示全部执行。
                  可传单个文件名 str，或文件名列表 list[str]，如 ["old_query.sql", "tmp.sql"]。
+        mode: 查询执行模式，支持 "api" 与 "trino"。由脚本显式指定，不从 YAML 读取。
     输出：
         无。结果以 CSV 文件形式写入需求目录根目录。
     异常：
@@ -159,7 +121,7 @@ def run_for_workspace(
         )
 
     db_cfg = _load_db_config()
-    api_cfg = _build_api_config(db_cfg)
+    runtime_cfg = build_query_runtime_config(db_cfg, mode=mode)
 
     workspace_dir = Path(base_path) / requre_dir_name
     if not workspace_dir.is_dir():
@@ -188,6 +150,12 @@ def run_for_workspace(
 
     total = len(sql_files)
     print(f"[开始] 工作目录：{workspace_dir}")
+    print(f"[信息] 运行模式：{runtime_cfg.mode}")
+    if runtime_cfg.mode == "trino" and runtime_cfg.trino_config is not None:
+        print(
+            f"[信息] Trino 分批抓取：fetch_size={runtime_cfg.trino_config.fetch_size}，"
+            f"progress_log_every_batches={runtime_cfg.trino_config.progress_log_every_batches}"
+        )
     print(f"[信息] SQL 目录：{sql_dir}，待运行 SQL 文件数：{total}")
 
     success_files: list[str] = []
@@ -198,15 +166,25 @@ def run_for_workspace(
         sql_text = read_sql_file(sql_path)
         print(f"[执行] 第 {idx}/{total} 个：{sql_path.name}")
         try:
-            df = run_sql(sql_text, api_cfg)
             out_name = f"{sql_path.stem}_res.csv"
             out_path = workspace_dir / out_name
-            df.to_csv(out_path, index=False)
-            n_rows, n_cols = len(df), len(df.columns)
+            on_progress = None
+            if runtime_cfg.mode == "trino":
+                def _progress_callback(rows: int, batches: int) -> None:
+                    print(f"[进度] {sql_path.name}：已导出 {rows} 行（{batches} 批）")
+
+                on_progress = _progress_callback
+
+            n_rows, n_cols = export_sql_to_csv(
+                sql_text,
+                str(out_path),
+                runtime_cfg,
+                on_progress=on_progress,
+            )
             total_rows_success += n_rows
             print(
                 f"[完成] 第 {idx} 个：{sql_path.name} -> {out_name}，"
-                f"{n_rows} 行，{n_cols} 列"
+                f"{n_rows} 行，{n_cols} 列，mode={runtime_cfg.mode}"
             )
             success_files.append(sql_path.name)
         except Exception as exc:
@@ -226,13 +204,13 @@ if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
     # 需求目录名称：与 new_requre 创建的主目录名一致。
     # 例如：2025-02-28_RE001_运营部_留存分析
-    REQURE_DIR_NAME = "2026-04-01 TP1-20260331-026 ZZJ 赛季活跃下降"
+    REQURE_DIR_NAME = "2026-04-08 CV-20260407-027 NT 回流效果分析"
 
     # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
     # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
-    # PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql', 'sql03.sql']
-    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql']
+    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql', 'sql03.sql', 'sql04.sql']
     # PASS_SQL: Optional[Union[str, list[str]]] = []
+    MODE: QueryMode = "api"
 
     if not REQURE_DIR_NAME:
         raise ValueError(
@@ -240,5 +218,5 @@ if __name__ == "__main__":
             "然后再运行本脚本。"
         )
 
-    run_for_workspace(REQURE_DIR_NAME, pass_sql=PASS_SQL)
+    run_for_workspace(REQURE_DIR_NAME, pass_sql=PASS_SQL, mode=MODE)
 
