@@ -22,9 +22,9 @@ def _load_config() -> dict:
 
 if __name__ == "__main__":
     # ---------- 只需修改下面三个变量，即可快速创建需求目录 ----------
-    REQURE_ID = "CV-20260413-029"       # 需求 ID
-    REQUESTER = "DA"      # 项目/部门
-    REQ_NAME = "流失用户预测模型"      # 需求名称
+    REQURE_ID = "TP1-20260527-044"       # 需求 ID
+    REQUESTER = "FC"      # 项目/部门
+    REQ_NAME = "老用户金币冗余持续上涨"      # 需求名称
     # 不填则使用 configs 中 workspace_settings.base_path
     BASE_PATH: str | None = None
 

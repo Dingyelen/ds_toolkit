@@ -204,13 +204,13 @@ if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
     # 需求目录名称：与 new_requre 创建的主目录名一致。
     # 例如：2025-02-28_RE001_运营部_留存分析
-    REQURE_DIR_NAME = "2026-04-08 CV-20260407-027 NT 回流效果分析"
+    REQURE_DIR_NAME = "2026-05-25 TP1-20260522-042 ZFR 老玩家关卡调控"
 
     # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
     # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
-    PASS_SQL: Optional[Union[str, list[str]]] = ['sql01.sql', 'sql02.sql', 'sql03.sql', 'sql04.sql']
+    PASS_SQL: Optional[Union[str, list[str]]] = ['sql02.sql']
     # PASS_SQL: Optional[Union[str, list[str]]] = []
-    MODE: QueryMode = "api"
+    MODE: QueryMode = "trino"
 
     if not REQURE_DIR_NAME:
         raise ValueError(

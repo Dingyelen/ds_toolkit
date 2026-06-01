@@ -60,13 +60,13 @@ class ProjectInitializer:
             excel_template: Excel 模板文件路径；如存在则优先复制该模板并更名，
                 若为空或路径无效，则退回到 excel_style 创建空工作簿的逻辑。
         Output:
-            Path: 最终创建的主文件夹绝对路径（若已存在则带后缀的路径）。
+            Path: 最终工作目录绝对路径（若已存在则直接返回该路径，不重复创建）。
         逻辑:
             1. 主文件夹名：YYYY-MM-DD_{requre_id}_{requester}_{req_name}，并对各段做文件名安全替换。
-            2. 若该路径已存在，则自动加后缀 _1、_2… 直至不冲突，并在控制台提示。
-            3. 创建子目录 py、sql。
-            4. 创建与主文件夹同名的空 Excel（.xlsx），并按 excel_style 设置默认字体/字号/网格线。
-            5. 在控制台打印主文件夹绝对路径，便于点击跳转。
+            2. 若该路径已存在，则跳过创建并返回已有目录路径。
+            3. 若目录不存在，则创建子目录 py、sql。
+            4. 若目录不存在，则创建与主文件夹同名的空 Excel（.xlsx），并按 excel_style 设置默认字体/字号/网格线。
+            5. 在控制台打印最终目录绝对路径，便于点击跳转。
         """
         if base_path is None:
             raise ValueError(
@@ -83,11 +83,10 @@ class ProjectInitializer:
         base_name = f"{today} {safe_req_id} {safe_proj} {safe_name}"
 
         target_dir = root / base_name
-        suffix = 0
-        while target_dir.exists():
-            suffix += 1
-            target_dir = root / f"{base_name}_{suffix}"
-            print(f"[提示] 路径已存在，已使用带后缀的目录：{target_dir.name}")
+        if target_dir.exists():
+            abs_path = target_dir.resolve()
+            print(f"[跳过] 工作目录已存在，未重复创建：\n{abs_path}")
+            return abs_path
 
         target_dir.mkdir(parents=True)
         (target_dir / "py").mkdir()
