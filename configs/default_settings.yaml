@@ -4,7 +4,7 @@
 # 工作目录初始化（core/utils.file_made.ProjectInitializer 用）
 workspace_settings:
   # base_path: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio"
-  base_path: "/Users/dingyelen/Nutstore Files/mycloud/work/ghoststudio"
+  base_path: "/Users/dingyelen/Nutstore Files/mycloud/work/ghoststudio/"
   
 # Excel 默认样式配置（由 scripts 读取后透传给 ProjectInitializer）
 excel_defaults:
@@ -14,4 +14,4 @@ excel_defaults:
 
 # Excel 模板配置（如存在，则优先复制该模板再更名）
 excel_template:
-  path: "/Users/dyl/Nutstore Files/nuts/work/ghoststudio/9999-99-99 base/analysis_demo.xlsx"
+  path: "/Users/dingyelen/Nutstore Files/mycloud/work/ghoststudio/9999-99-99 base/analysis_demo.xlsx"

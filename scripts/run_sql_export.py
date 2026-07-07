@@ -204,7 +204,7 @@ if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
     # 需求目录名称：与 new_requre 创建的主目录名一致。
     # 例如：2025-02-28_RE001_运营部_留存分析
-    REQURE_DIR_NAME = "2026-04-20 CV-20260413-029 DA 流失用户预测模型"
+    REQURE_DIR_NAME = "2026-07-06 TP1-20260703-059 ZZJ 各赛季付费情况"
 
     # 需要跳过不执行的 SQL 文件名，None 表示全部执行。可为单个 str 或 list[str]。
     # 例如：PASS_SQL = ["old_query.sql"] 或 PASS_SQL = "tmp.sql"
