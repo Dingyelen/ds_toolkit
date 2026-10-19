@@ -333,6 +333,25 @@ did_df = compute_did(
 
 ---
 
+## 脚本入口（scripts/）
+
+### 需求目录 CSV 纵向合并：`scripts/merge_workspace_csv.py`
+
+在 `configs/default_settings.yaml` 已配置 `workspace_settings.base_path` 的前提下，按需求目录名读取 CSV 并纵向合并，结果保存到同一需求目录根目录。
+
+1. 修改脚本内变量：
+   - `REQURE_DIR_NAME`：需求目录名称（与 `new_requre.py` 创建的主目录名一致）；
+   - `FILE_LIST`：待合并文件名列表；设为 `[]` 或 `None` 时合并根目录下全部 `.csv`（自动排除 `OUTPUT_FILE_NAME`，不递归子目录）；
+   - `OUTPUT_FILE_NAME`：合并后的输出文件名。
+2. 在项目根目录执行：
+   - 列出根目录全部 CSV 文件名：`python scripts/merge_workspace_csv.py --mode=list`
+   - 纵向合并：`python scripts/merge_workspace_csv.py --mode=union`
+   - 可选 `--requre-dir "需求目录名"` 覆盖脚本内 `REQURE_DIR_NAME`
+
+**合并规则**（`--mode=union`）：各文件列名及顺序须与首个文件完全一致，否则报错；读取使用 `DataLoader` 的 CSV 编码回退。
+
+---
+
 ## 环境与依赖
 
 - Python 3.10+
