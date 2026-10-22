@@ -335,20 +335,29 @@ did_df = compute_did(
 
 ## 脚本入口（scripts/）
 
-### 需求目录 CSV 纵向合并：`scripts/merge_workspace_csv.py`
+### 需求目录 CSV 列表 / 合并 / 关联：`scripts/merge_workspace_csv.py`
 
-在 `configs/default_settings.yaml` 已配置 `workspace_settings.base_path` 的前提下，按需求目录名读取 CSV 并纵向合并，结果保存到同一需求目录根目录。
+在 `configs/default_settings.yaml` 已配置 `workspace_settings.base_path` 的前提下，按需求目录名处理 CSV，结果保存到同一需求目录根目录。
 
 1. 修改脚本内变量：
    - `REQURE_DIR_NAME`：需求目录名称（与 `new_requre.py` 创建的主目录名一致）；
-   - `FILE_LIST`：待合并文件名列表；设为 `[]` 或 `None` 时合并根目录下全部 `.csv`（自动排除 `OUTPUT_FILE_NAME`，不递归子目录）；
-   - `OUTPUT_FILE_NAME`：合并后的输出文件名。
+   - `FILE_LIST`：待处理文件名；`union` 模式下 `[]` 表示合并根目录下全部 `.csv`（自动排除 `OUTPUT_FILE_NAME`）；`join` 模式须至少 2 个文件，按列表顺序链式关联（首表为基表），例如 `["a.csv", "b.csv", "c.csv"]`；
+   - `OUTPUT_FILE_NAME`：输出文件名；
+   - `JOIN_KEYS`、`JOIN_HOW`、`KEEP_RIGHT_DUP_COLS`：仅 `join` 模式使用（见下）。
 2. 在项目根目录执行：
-   - 列出根目录全部 CSV 文件名：`python scripts/merge_workspace_csv.py --mode=list`
+   - 列出根目录全部 CSV：`python scripts/merge_workspace_csv.py --mode=list`
    - 纵向合并：`python scripts/merge_workspace_csv.py --mode=union`
-   - 可选 `--requre-dir "需求目录名"` 覆盖脚本内 `REQURE_DIR_NAME`
+   - 横向关联：`python scripts/merge_workspace_csv.py --mode=join`
+   - 可选 `--requre-dir "需求目录名"`、`--join-keys user_id,dt`、`--join-how left|right|inner|full`、`--keep-right-dup-cols`
 
-**合并规则**（`--mode=union`）：各文件列名及顺序须与首个文件完全一致，否则报错；读取使用 `DataLoader` 的 CSV 编码回退。
+**纵向合并**（`--mode=union`）：各文件列名及顺序须与首个文件完全一致；读取使用 `DataLoader` 编码回退。
+
+**横向关联**（`--mode=join`）：
+- 多表链式：基表与 `FILE_LIST[1:]` 依次 merge，每步使用相同 `JOIN_KEYS` 与 `JOIN_HOW`；
+- `JOIN_HOW`：`left` / `right` / `inner` / `full`（`full` 对应 pandas `outer`）；
+- `JOIN_KEYS`：单键或多键列表；
+- 默认 `KEEP_RIGHT_DUP_COLS=False`：每一步左表（含已合并结果）列全部保留，该步右表仅保留关联键与左表没有同名的列；为 `True` 时该步保留右表重名非键列，并以 `_left` / `_right` 后缀区分。
+- 指定文件不存在时，报错会列出需求目录下现有 CSV 文件名。
 
 ---
 
