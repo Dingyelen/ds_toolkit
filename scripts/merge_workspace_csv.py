@@ -517,15 +517,18 @@ def main(
 
 if __name__ == "__main__":
     # ---------- 使用前请修改下面变量 ----------
-    REQURE_DIR_NAME = "2026-10-20 CHEF-20261020-104 XYB 玩家流失关卡分析"
+    # REQURE_DIR_NAME = "2026-10-20 CHEF-20261020-104 XYB 玩家流失关卡分析"
+    REQURE_DIR_NAME = "2026-10-15 TP1-20261013-102 YXY 商业化实验分析 da_abtest_pay_layer0910"
+
 
     # 待合并的 CSV 文件名；[] 或 None 表示合并需求目录根目录下全部 CSV（自动排除输出文件）
-    # FILE_LIST: Optional[Union[str, List[str]]] = ["sql01-love_hearts_res.csv", "sql01-raindrop_bounty_res.csv", "sql01-rewards_trail_v1_res.csv","sql01-wild_dash_res.csv"]
-    FILE_LIST: Optional[Union[str, List[str]]] = ["sql01_1_res.csv", "sql01_2_res.csv", "sql01_3_res.csv"]
+    FILE_LIST: Optional[Union[str, List[str]]] = ["sql01-box_blitz_res.csv", "sql01-butterfly_chase_res.csv", "sql01-love_hearts_res.csv", "sql01-plus_one_sale_res.csv", "sql01-raindrop_bounty_res.csv", "sql01-rewards_trail_v1_res.csv", "sql01-wild_dash_res.csv"]
+    # FILE_LIST: Optional[Union[str, List[str]]] = ["sql02-box_blitz_res.csv", "sql02-butterfly_chase_res.csv", "sql02-love_hearts_res.csv", "sql02-plus_one_sale_res.csv", "sql02-raindrop_bounty_res.csv", "sql02-rewards_trail_v1_res.csv", "sql02-wild_dash_res.csv"]
+    # FILE_LIST: Optional[Union[str, List[str]]] = ["sql01_1_res.csv", "sql01_2_res.csv", "sql01_3_res.csv"]
     # 例如：FILE_LIST = ["sql01_res.csv", "sql02_res.csv"]
 
-    # OUTPUT_FILE_NAME = "sql01_res.csv"
     OUTPUT_FILE_NAME = "sql01_res.csv"
+    # OUTPUT_FILE_NAME = "sql02_res.csv"
 
     # join 模式：FILE_LIST 至少 2 个文件，按顺序链式关联（首表为基表）
     JOIN_KEYS: Union[str, List[str]] = ['country', 'da_login_days', 'level_id', ]
